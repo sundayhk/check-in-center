@@ -1,0 +1,16 @@
+# 一次性部署用：crontab -e 粘贴以下内容（按需改路径）
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+TZ=Asia/Shanghai
+
+# 北京 00:10 全量签到（NodeSeek 主签到）
+10 0 * * * cd /opt/signin-hub && docker compose run --rm signin python main.py >> logs/cron.log 2>&1
+
+# 北京 08:30 全量签到（V2EX / 烧饼 主签到，当日已签的会自动跳过）
+30 8 * * * cd /opt/signin-hub && docker compose run --rm signin python main.py >> logs/cron.log 2>&1
+
+# 北京 12:20 兜底补签（只补上午失败的）
+20 12 * * * cd /opt/signin-hub && docker compose run --rm signin python main.py >> logs/cron.log 2>&1
+
+# 不用 Docker 的话，把上面命令换成：
+# 10 0 * * * cd /opt/signin-hub && /opt/venv/bin/python main.py >> logs/cron.log 2>&1

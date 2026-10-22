@@ -1,0 +1,59 @@
+# 复制为 config.yaml 后按需修改；所有 ${VAR} 都会从环境变量读取
+# 只关心环境变量的话，可以直接不建这个文件，程序会自动走纯环境变量模式
+
+runtime:
+  timezone: Asia/Shanghai
+  log_level: INFO
+  log_dir: logs
+  state_db: data/state.db
+  headless: true              # 浏览器通道是否无头（本地调试可设 false）
+  browser_backend: auto       # auto | camoufox | playwright | none
+  proxy: ""                   # 例：http://127.0.0.1:7890 或 socks5://127.0.0.1:1080
+  timeout: 30
+  cf_wait_timeout: 90        # 等待 Cloudflare 挑战通过的最长秒数
+  retries: 1                  # 单账号失败重试次数
+  site_gap: [30, 120]         # 站点之间的随机等待秒数区间
+  account_gap: [10, 60]       # 同站点账号之间的随机等待秒数区间
+
+notify:
+  telegram:
+    enabled: true
+    bot_token: ${TG_BOT_TOKEN}
+    chat_id: ${TG_CHAT_ID}
+    thread_id: ${TG_THREAD_ID}    # 超级群组话题 ID，可留空
+  wecom:
+    enabled: false
+    webhook: ${WECOM_WEBHOOK}
+  # 通用 webhook（可选）
+  # webhook:
+  #   enabled: false
+  #   url: https://example.com/hook
+
+sites:
+  nodeseek:
+    enabled: true
+    strategy: auto            # auto | api | browser（被 CF 拦时建议直接 browser）
+    cookie_separator: "|"     # 多账号分隔
+    options:
+      mode: random            # random=试试手气 / fixed=稳拿 5 鸡腿
+    accounts:
+      - name: 主号
+        cookie: ${NS_COOKIE}
+        # options:
+        #   mode: fixed       # 单账号可覆盖全局模式
+
+  v2ex:
+    enabled: true
+    accounts:
+      - name: 主号
+        cookie: ${V2EX_COOKIE}   # 只需 A2 字段即可
+
+  shaobing:
+    enabled: true
+    cookie_separator: "&"     # 该站多账号习惯用 & 分隔
+    accounts:
+      - name: 主号
+        cookie: ${LINUXSB_COOKIE}
+        # cookie 失效时的兜底（可选，会自动登录，登录页有算术验证码）
+        # username: ${LINUXSB_USERNAME}
+        # password: ${LINUXSB_PASSWORD}

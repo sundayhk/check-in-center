@@ -1,0 +1,13 @@
+services:
+  signin:
+    build: .
+    image: signin-hub:latest
+    container_name: signin-hub
+    restart: "no"
+    env_file: .env
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    # 常驻模式：每 30 分钟检查一次，配合 state.db 当日去重不会重复签到
+    command: ["python", "main.py", "--daemon", "--interval", "1800"]

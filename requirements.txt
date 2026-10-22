@@ -1,0 +1,14 @@
+# ---- 核心依赖（必装）----
+PyYAML>=6.0
+requests>=2.31.0
+curl_cffi>=0.7.0        # TLS/JA3 指纹伪装，L1 层过 Cloudflare 的关键
+beautifulsoup4>=4.12.0
+
+# ---- 浏览器通道（L2/L3，处理 Cloudflare 用）----
+# 二选一即可，都装时优先 camoufox（反检测 Firefox 内核，过盾率更高）
+camoufox>=0.4.0
+playwright>=1.44.0
+
+# 安装浏览器内核：
+#   python -m camoufox fetch
+#   python -m playwright install chromium
