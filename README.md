@@ -1,6 +1,6 @@
 # signin-hub
 
-多站点自动签到系统：NodeSeek（含随机签到 + Cloudflare）、V2EX、烧饼社区（linux.sb）。
+多站点自动签到系统：NodeSeek（含随机签到 + Cloudflare）、V2EX、烧饼社区（linux.sb）、烧饼论坛（sb.sb）。
 插件式架构，新增站点只需在 `sites/` 加一个类并登记进 `REGISTRY`。
 
 ## 架构
@@ -65,7 +65,15 @@ python main.py                   # 真跑
 - 北京时间 08:00 前一般领不了，建议排在 08:30 之后
 - 基本无 Cloudflare，L1 直连搞定
 
-### 烧饼社区 linux.sb
+### 烧饼论坛 sb.sb（站点 key：`sbsb`）
+
+- 签到页 `https://sb.sb/signin/`：`GET` 取表单 `_csrf`，`POST /signin/` 提交 `_csrf=xxx`
+- 「已签到」判定：按钮文案含「今日已签到」，或页面存在 `.signin-cal-day.done.today`
+- 奖励随机 1~10 烧饼，按 UTC 日期计，北京时间每天 08:00 刷新，建议排在 08:30 之后
+- Cookie 整段复制（登录后抓任一 sb.sb 请求的 Request Headers）
+- Cookie 失效时若配了 `username/password`，浏览器通道会自动登录后再签（尽力而为，站点若有验证码会失败并告警）
+
+### 烧饼社区 linux.sb（站点 key：`linuxsb`）
 
 - `GET /daily_checkin` 取 `_csrf` → `POST /daily_checkin`（`_csrf=xxx`）
 - 登录态 cookie 是 `bbs_auth`，CSRF 取页面隐藏域或 cookie `bbs_csrf`
@@ -126,3 +134,4 @@ Fork 后在 `Settings → Secrets and variables → Actions` 里配置 `NS_COOKI
 | 浏览器通道报未找到后端 | `pip install camoufox && python -m camoufox fetch` |
 | V2EX 找不到领取链接 | 可能早于 08:00 或今日已领；加 `--force` 复测 |
 | 烧饼报未取到 `_csrf` | 页面结构可能变化，或已被重定向到登录页，重新抓 Cookie |
+| sb.sb 报未找到签到入口 | 确认 cookie 有效；把日志里打印的按钮文案发出来对照，必要时改 `sites/sbsb.py` 的选择器 |

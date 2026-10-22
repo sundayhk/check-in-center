@@ -212,6 +212,17 @@ class BrowserSession:
                 continue
         return False
 
+    def click_selector(self, selector: str, timeout: int = 8000) -> bool:
+        """按 CSS 选择器点击（签到页按钮常有固定的 class）。"""
+        try:
+            loc = self.page.locator(selector).first
+            if loc.count() > 0:
+                loc.click(timeout=timeout)
+                return True
+        except Exception:
+            pass
+        return False
+
     def screenshot(self, path: str) -> None:
         try:
             self.page.screenshot(path=path, full_page=False)

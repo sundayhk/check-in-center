@@ -68,8 +68,8 @@ LOGIN_FILL_JS = """
 """
 
 
-class ShaoBingSite(BaseSite):
-    name = "shaobing"
+class LinuxSbSite(BaseSite):
+    name = "linuxsb"
     display = "烧饼社区"
 
     def signin(self, account: Account) -> SigninResult:

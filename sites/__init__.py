@@ -4,14 +4,16 @@ from typing import Dict
 from core.base import BaseSite, Context
 from core.config import Config
 
+from .linuxsb import LinuxSbSite
 from .nodeseek import NodeSeekSite
-from .shaobing import ShaoBingSite
+from .sbsb import SbSbSite
 from .v2ex import V2exSite
 
 REGISTRY = {
     NodeSeekSite.name: NodeSeekSite,
     V2exSite.name: V2exSite,
-    ShaoBingSite.name: ShaoBingSite,
+    LinuxSbSite.name: LinuxSbSite,
+    SbSbSite.name: SbSbSite,
 }
 
 

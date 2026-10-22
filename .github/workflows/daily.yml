@@ -46,6 +46,9 @@ jobs:
           LINUXSB_COOKIE: ${{ secrets.LINUXSB_COOKIE }}
           LINUXSB_USERNAME: ${{ secrets.LINUXSB_USERNAME }}
           LINUXSB_PASSWORD: ${{ secrets.LINUXSB_PASSWORD }}
+          SBSB_COOKIE: ${{ secrets.SBSB_COOKIE }}
+          SBSB_USERNAME: ${{ secrets.SBSB_USERNAME }}
+          SBSB_PASSWORD: ${{ secrets.SBSB_PASSWORD }}
           PROXY: ${{ secrets.PROXY }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}

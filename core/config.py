@@ -227,11 +227,16 @@ def _env_template() -> Dict[str, Any]:
                 "enabled": bool(os.environ.get("V2EX_COOKIE")),
                 "cookie": "${V2EX_COOKIE}",
             },
-            "shaobing": {
+            "linuxsb": {
                 "enabled": bool(os.environ.get("LINUXSB_COOKIE") or os.environ.get("LINUXSB_ACCOUNT")),
                 "cookie_separator": "&",
                 "cookie": "${LINUXSB_COOKIE}",
                 "account_json": "${LINUXSB_ACCOUNT}",
+            },
+            "sbsb": {
+                "enabled": bool(os.environ.get("SBSB_COOKIE")),
+                "cookie_separator": "|",
+                "cookie": "${SBSB_COOKIE}",
             },
         },
     }

@@ -48,7 +48,7 @@ sites:
       - name: 主号
         cookie: ${V2EX_COOKIE}   # 只需 A2 字段即可
 
-  shaobing:
+  linuxsb:                    # 烧饼社区 https://linux.sb
     enabled: true
     cookie_separator: "&"     # 该站多账号习惯用 & 分隔
     accounts:
@@ -57,3 +57,13 @@ sites:
         # cookie 失效时的兜底（可选，会自动登录，登录页有算术验证码）
         # username: ${LINUXSB_USERNAME}
         # password: ${LINUXSB_PASSWORD}
+
+  sbsb:                       # 烧饼论坛 https://sb.sb
+    enabled: true
+    strategy: auto            # auto | browser
+    accounts:
+      - name: 主号
+        cookie: ${SBSB_COOKIE}
+        # cookie 失效时的兜底（可选）
+        # username: ${SBSB_USERNAME}
+        # password: ${SBSB_PASSWORD}
