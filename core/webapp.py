@@ -254,6 +254,15 @@ class WebApp:
                         "separator": site.cookie_separator, "accounts": accs})
         return out
 
+    @staticmethod
+    def _env_quote(val: str) -> str:
+        """给 .env 值加引号：优先单引号——compose 的 dotenv 解析对单引号值
+        不做 $变量 插值也不做转义处理（cookie 里的 $ 才不会被吞）；
+        值本身含 ' 时回退到双引号并转义 \"。"""
+        if "'" not in val:
+            return f"'{val}'"
+        return f'"{val.replace(chr(34), chr(92) + chr(34))}"'
+
     def _write_env(self, site: str, cookie: str, username: str, password: str) -> None:
         """把导入的配置写回 .env（保留其余行；注释行不动）。"""
         updates: Dict[str, str] = {}
@@ -272,10 +281,8 @@ class WebApp:
         for line in lines:
             m = re.match(r"^(\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
             if m and m.group(2) in updates:
-                key = m.group(2)
-                val = updates[key].replace('"', '\\"')
-                new_lines.append(f'{key}="{val}"')
-                seen.add(key)
+                new_lines.append(f"{m.group(2)}={self._env_quote(updates[m.group(2)])}")
+                seen.add(m.group(2))
             else:
                 new_lines.append(line)
         missing = [k for k in updates if k not in seen]
@@ -283,7 +290,7 @@ class WebApp:
             new_lines.append("")
             new_lines.append(f"# Web UI 导入 · {datetime.now().strftime('%Y-%m-%d %H:%M')}")
             for k in missing:
-                new_lines.append(f'{k}="{updates[k]}"')
+                new_lines.append(f"{k}={self._env_quote(updates[k])}")
         env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
         for k, v in updates.items():
             os.environ[k] = v
