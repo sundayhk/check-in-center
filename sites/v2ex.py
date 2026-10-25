@@ -40,7 +40,13 @@ class V2exSite(BaseSite):
         if r.status_code != 200:
             return self.result(account, "failed", f"HTTP {r.status_code}")
         if _not_logged_in(r):
-            return self.result(account, "failed", "Cookie 已失效（A2），请重新抓取")
+            # 2026-10 起 V2EX 仅凭 A2 无法维持登录态，需要 PB3_SESSION 等会话字段
+            if "PB3_SESSION" not in parse_cookie(account.cookie):
+                return self.result(
+                    account, "failed",
+                    "Cookie 缺少 PB3_SESSION 字段（现在仅 A2 不够），请从浏览器重新复制完整 Cookie"
+                    "（至少含 A2、PB3_SESSION、A2O、V2EX_TAB）")
+            return self.result(account, "failed", "Cookie 已失效（A2/PB3_SESSION），请重新抓取")
 
         balance = _balance(r.text)
         m = REDEEM_RE.search(r.text)
