@@ -40,4 +40,5 @@ raise SystemExit(0 if (a or pw) else 1)"
 
 # Web 控制台 + 常驻签到一体：UI 在 8080，签到调度在后台线程
 EXPOSE 8080
-CMD ["python", "main.py", "--web", "--daemon", "--interval", "1800"]
+# 容器内固定监听 8080；宿主机端口用 .env 的 WEB_PORT 映射
+CMD ["python", "main.py", "--web", "--web-port", "8080", "--daemon", "--interval", "1800"]

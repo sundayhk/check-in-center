@@ -11,5 +11,6 @@ services:
       - ./logs:/app/logs
       - ./.env:/app/.env
     ports:
+      # 宿主机端口取 .env 的 WEB_PORT；容器内固定 8080（Dockerfile CMD 已写死）
       - "${WEB_PORT:-8080}:8080"
     # Web 控制台 + 常驻签到一体：UI 在 8080（Cookie 导入/记录/手动签到），签到每 30 分钟一轮
