@@ -52,6 +52,12 @@ class V2exSite(BaseSite):
         m = REDEEM_RE.search(r.text)
         if not m:
             if "已领取" in r.text or "每日登录奖励" in r.text:
+                # 北京时间 08:00 前当天奖励未刷新，页面显示的「已领取」是昨天的状态；
+                # 此时不能记「今日已完成」，否则去重库会把今天真正的领取窗口跳过。
+                if _before_daily_reset():
+                    return self.result(
+                        account, "skipped",
+                        "未到领取时间（北京时间 08:00 前奖励未刷新，页面仍是昨日状态），稍后再签")
                 return self.result(account, "already", "今日已领取", "", balance)
             return self.result(account, "failed", "未找到领取链接（未到时间或页面改版）")
 
@@ -82,6 +88,17 @@ def _not_logged_in(r) -> bool:
         return True
     head = r.text[:3000]
     return ('name="password"' in head) or ("登录以继续" in head) or ("请先登录" in head)
+
+
+def _before_daily_reset() -> bool:
+    """北京时间 08:00 前当天奖励未刷新（不管容器/机器时区是什么）。"""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    try:
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    except Exception:
+        now = datetime.now()
+    return now.hour < 8
 
 
 def _balance(html: str) -> str:
