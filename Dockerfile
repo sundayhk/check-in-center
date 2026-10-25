@@ -38,4 +38,6 @@ pw = _playwright_chromium_ready(); \
 print('[docker] camoufox:', v, '| playwright chromium:', 'ready' if pw else 'missing'); \
 raise SystemExit(0 if (a or pw) else 1)"
 
-CMD ["python", "main.py"]
+# Web 控制台 + 常驻签到一体：UI 在 8080，签到调度在后台线程
+EXPOSE 8080
+CMD ["python", "main.py", "--web", "--daemon", "--interval", "1800"]

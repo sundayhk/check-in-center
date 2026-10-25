@@ -87,6 +87,23 @@ python main.py                   # 真跑
   ；若触发邮箱验证风控，只能人工在本地浏览器过一次再更新 Cookie
 - 多账号 cookie 用 `&` 分隔
 
+## Web 控制台
+
+容器内已内置 Web UI（`python main.py --web`，与 `--daemon` 可同时运行）：
+
+```bash
+# .env 里设置访问密码（公网部署务必设置）
+WEB_PASSWORD=your-secret
+docker compose up -d
+```
+
+浏览器访问 `http://主机:8080`：
+
+- **概览**：各站今日状态、连续签到天数、最新奖励与当前积分（鸡腿 / 铜币 / 积分 / 烧饼）
+- **签到记录**：按站点 / 时间范围筛选，含每条记录的奖励与余额
+- **Cookie 管理**：粘贴导入各站 Cookie（脱敏展示、写回 .env 并即时热生效），linux.sb / sb.sb 支持账号密码兜底
+- **立即签到**：手动触发一轮签到（可只选某个站点 / 强制重签）
+
 ## 部署
 
 ### 方式一：VPS + Docker（推荐）

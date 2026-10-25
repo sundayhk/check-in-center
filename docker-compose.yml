@@ -3,11 +3,13 @@ services:
     build: .
     image: checkin-hub:latest
     container_name: checkin-hub
-    restart: "no"
+    restart: unless-stopped
     env_file: .env
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./data:/app/data
       - ./logs:/app/logs
-    # 常驻模式：每 30 分钟检查一次，配合 state.db 当日去重不会重复签到
-    command: ["python", "main.py", "--daemon", "--interval", "1800"]
+      - ./.env:/app/.env
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    # Web 控制台 + 常驻签到一体：UI 在 8080（Cookie 导入/记录/手动签到），签到每 30 分钟一轮

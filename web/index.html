@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>signin-hub 控制台</title>
+<style>
+:root {
+  --bg: #0f1419; --panel: #1a2028; --border: #2a323d; --text: #e6e9ed;
+  --muted: #8b95a1; --accent: #4c8dff; --ok: #3fb96f; --warn: #e0a63a; --bad: #e05656;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font: 14px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+.wrap { max-width: 980px; margin: 0 auto; padding: 20px 16px 60px; }
+h1 { font-size: 20px; margin-bottom: 4px; }
+.sub { color: var(--muted); font-size: 12px; margin-bottom: 18px; }
+.tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+.tabs button { background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+  padding: 7px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.tabs button.on { color: var(--text); border-color: var(--accent); }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+.site-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.site-head b { font-size: 15px; }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+.badge.ok { color: var(--ok); border-color: var(--ok); }
+.badge.bad { color: var(--bad); border-color: var(--bad); }
+.badge.warn { color: var(--warn); border-color: var(--warn); }
+.meta { color: var(--muted); font-size: 12px; }
+.points { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 13px; }
+.points .p b { color: var(--accent); font-size: 15px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; }
+td.msg { white-space: normal; color: var(--muted); }
+.st-ok { color: var(--ok); } .st-already { color: var(--warn); } .st-failed { color: var(--bad); } .st-skip { color: var(--muted); }
+input, textarea, select { background: #10151b; border: 1px solid var(--border); color: var(--text);
+  border-radius: 8px; padding: 8px 10px; font-size: 13px; width: 100%; }
+textarea { min-height: 84px; font-family: ui-monospace, monospace; }
+label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+.btn { background: var(--accent); border: 0; color: #fff; padding: 8px 18px; border-radius: 8px;
+  cursor: pointer; font-size: 13px; }
+.btn.gray { background: var(--border); }
+.btn:disabled { opacity: .5; cursor: default; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.toast { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); background: #263242;
+  border: 1px solid var(--accent); padding: 8px 18px; border-radius: 8px; display: none; z-index: 9; }
+#summary { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px;
+  background: #10151b; border-radius: 8px; padding: 10px; margin-top: 10px; display: none; }
+.login { max-width: 340px; margin: 12vh auto; }
+.spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--accent);
+  border-top-color: transparent; border-radius: 50%; animation: r 1s linear infinite; vertical-align: -2px; }
+@keyframes r { to { transform: rotate(360deg); } }
+select { width: auto; }
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="wrap" id="app" style="display:none">
+  <h1>signin-hub 控制台</h1>
+  <div class="sub" id="subinfo"></div>
+  <div class="tabs">
+    <button data-tab="ov" class="on">概览</button>
+    <button data-tab="rec">签到记录</button>
+    <button data-tab="ck">Cookie 管理</button>
+    <span class="row" style="margin-left:auto">
+      <select id="runSite"><option value="">全部站点</option></select>
+      <label style="margin:0"><input type="checkbox" id="runForce" style="width:auto"> 强制</label>
+      <button class="btn" id="runBtn">立即签到</button>
+    </span>
+  </div>
+  <div id="tab-ov"></div>
+  <div id="tab-rec" style="display:none">
+    <div class="card">
+      <div class="row">
+        <select id="recSite"><option value="">全部站点</option></select>
+        <select id="recDays">
+          <option value="7">最近 7 天</option><option value="30" selected>最近 30 天</option><option value="90">最近 90 天</option>
+        </select>
+      </div>
+    </div>
+    <div class="card" style="overflow-x:auto"><table id="recTable"></table></div>
+  </div>
+  <div id="tab-ck" style="display:none"></div>
+  <div class="card" id="summary"></div>
+</div>
+
+<div class="login" id="login" style="display:none">
+  <div class="card">
+    <h1 style="font-size:17px;margin-bottom:12px">signin-hub 登录</h1>
+    <label>访问密码（WEB_PASSWORD）</label>
+    <input type="password" id="pwd" placeholder="密码">
+    <div style="margin-top:14px"><button class="btn" id="loginBtn" style="width:100%">登录</button></div>
+    <div class="meta" id="loginErr" style="color:var(--bad);margin-top:8px"></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const toast = m => { const t = $('#toast'); t.textContent = m; t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 2600); };
+async function api(path, opt) {
+  const r = await fetch(path, opt);
+  if (r.status === 401) { showLogin(); throw new Error('未登录'); }
+  return r.json();
+}
+
+/* ---------- 登录 ---------- */
+function showLogin() { $('#app').style.display = 'none'; $('#login').style.display = 'block'; }
+function showApp() { $('#login').style.display = 'none'; $('#app').style.display = 'block'; init(); }
+$('#loginBtn').onclick = async () => {
+  const r = await fetch('/api/login', { method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ password: $('#pwd').value }) });
+  const j = await r.json();
+  if (j.ok) { showApp(); } else { $('#loginErr').textContent = j.msg || '登录失败'; }
+};
+
+/* ---------- Tab 切换 ---------- */
+document.querySelectorAll('.tabs button[data-tab]').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button[data-tab]').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  ['ov','rec','ck'].forEach(t => $('#tab-' + t).style.display = t === b.dataset.tab ? '' : 'none');
+  if (b.dataset.tab === 'rec') loadRecords();
+  if (b.dataset.tab === 'ck') loadCookies();
+});
+
+/* ---------- 概览 ---------- */
+const SITE_POINTS = {
+  nodeseek: '🍗 鸡腿', v2ex: '🪙 铜币', linuxsb: '⭐ 积分', sbsb: '🫓 烧饼',
+};
+async function loadOverview() {
+  const j = await api('/api/overview');
+  if (!j.ok) return;
+  const el = $('#tab-ov');
+  el.innerHTML = j.sites.map(s => {
+    const st = !s.enabled ? '<span class="badge">已停用</span>' :
+      s.accounts.every(a => a.done_today) ? '<span class="badge ok">今日已完成</span>' :
+      s.accounts.some(a => a.done_today) ? '<span class="badge warn">部分完成</span>' :
+      '<span class="badge bad">今日未签</span>';
+    return `<div class="card"><div class="site-head"><b>${s.label}</b>${st}
+      <span class="badge">${s.strategy}</span><span class="meta">${s.accounts.length} 个账号</span></div>
+      ${s.accounts.map(a => {
+        const L = a.latest || {};
+        const pts = [];
+        if (L.reward) pts.push(`<span class="p">本次 <b>${L.reward}</b></span>`);
+        if (L.balance) pts.push(`<span class="p">当前 <b>${L.balance}</b></span>`);
+        return `<div class="points">
+          <span class="p">${SITE_POINTS[s.site] || ''} 连续 <b>${a.streak}</b> 天</span>
+          ${pts.join('')}
+          <span class="meta">${L.day ? `${L.day} ${L.ts || ''} · ${L.message || L.status}` : '暂无记录'}</span>
+        </div>`;
+      }).join('')}</div>`;
+  }).join('');
+  const sel = $('#runSite'), rs = $('#recSite');
+  if (!sel.options.length) {
+    j.sites.forEach(s => {
+      sel.insertAdjacentHTML('beforeend', `<option value="${s.site}">${s.label}</option>`);
+      rs.insertAdjacentHTML('beforeend', `<option value="${s.site}">${s.label}</option>`);
+    });
+  }
+}
+
+/* ---------- 记录 ---------- */
+async function loadRecords() {
+  const days = $('#recDays').value, site = $('#recSite').value;
+  const j = await api(`/api/records?days=${days}&site=${site}`);
+  if (!j.ok) return;
+  const t = $('#recTable');
+  if (!j.records.length) { t.innerHTML = '<tr><td class="msg">该时间段暂无记录</td></tr>'; return; }
+  t.innerHTML = '<tr><th>日期</th><th>时间</th><th>站点</th><th>账号</th><th>状态</th><th>奖励</th><th>当前积分/余额</th><th>说明</th></tr>' +
+    j.records.map(r => `<tr>
+      <td>${r.day}</td><td>${(r.ts || '').slice(11)}</td>
+      <td>${r.site_label}</td><td>${r.account}</td>
+      <td class="st-${r.status}">${r.status_label}</td>
+      <td>${r.reward || '—'}</td><td>${r.balance || '—'}</td>
+      <td class="msg">${r.message || ''}</td></tr>`).join('');
+}
+$('#recDays').onchange = loadRecords;
+$('#recSite').onchange = loadRecords;
+
+/* ---------- Cookie 管理 ---------- */
+async function loadCookies() {
+  const j = await api('/api/cookies');
+  if (!j.ok) return;
+  $('#tab-ck').innerHTML = j.sites.map(s => {
+    const a = s.accounts[0] || {};
+    const userField = (s.site === 'linuxsb' || s.site === 'sbsb') ? `
+      <label>用户名（Cookie 失效时自动登录兜底，可选）</label>
+      <input id="u-${s.site}" value="${a.username || ''}">` : '';
+    return `<div class="card">
+      <div class="site-head"><b>${s.label}</b>
+        <span class="badge">${s.enabled ? '启用' : '停用'}</span>
+        <span class="meta">写入 .env 变量 ${s.env}${a.has_cookie ? ' · 当前：' + a.cookie_masked : ' · 未配置'}</span></div>
+      <label>Cookie（多账号用 <code>${s.separator}</code> 分隔；留空则不修改）</label>
+      <textarea id="c-${s.site}" placeholder="粘贴从浏览器复制的整段 Cookie"></textarea>
+      ${userField}
+      <div class="row" style="margin-top:12px">
+        <button class="btn" onclick="saveCookie('${s.site}')">保存</button>
+      </div></div>`;
+  }).join('');
+}
+async function saveCookie(site) {
+  const body = { cookie: $(`#c-${site}`).value.trim(),
+    username: ($(`#u-${site}`) || {}).value || '', password: '' };
+  const j = await api(`/api/cookies/${site}`, { method: 'POST',
+    headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  toast(j.msg || (j.ok ? '已保存' : '保存失败'));
+  if (j.ok) { $(`#c-${site}`).value = ''; loadCookies(); loadOverview(); }
+}
+
+/* ---------- 手动签到 ---------- */
+$('#runBtn').onclick = async () => {
+  const sites = $('#runSite').value ? [$('#runSite').value] : [];
+  const body = { sites, force: $('#runForce').checked };
+  const j = await api('/api/run', { method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body) });
+  if (!j.ok) { toast(j.msg || '启动失败'); return; }
+  toast('已开始，请等待完成');
+  pollRun();
+};
+let polling = null;
+function pollRun() {
+  if (polling) return;
+  polling = setInterval(async () => {
+    const j = await api('/api/run/status');
+    if (j.running) {
+      $('#runBtn').disabled = true;
+      $('#runBtn').innerHTML = '<span class="spin"></span> 执行中';
+    } else {
+      $('#runBtn').disabled = false;
+      $('#runBtn').textContent = '立即签到';
+      if (j.finished && j.summary) {
+        const s = $('#summary'); s.style.display = 'block'; s.textContent = j.summary;
+        if (!polling.done) { toast(j.ok ? '签到完成' : '签到有失败项'); loadOverview(); }
+      }
+      if (j.finished) { clearInterval(polling); polling = null; }
+    }
+  }, 3000);
+}
+
+/* ---------- init ---------- */
+async function init() {
+  const j = await api('/api/auth');
+  loadOverview();
+  pollRun();
+}
+(async () => {
+  const r = await (await fetch('/api/auth')).json();
+  if (!r.required || r.ok) showApp(); else showLogin();
+})();
+</script>
+</body>
+</html>

@@ -80,6 +80,9 @@ def main() -> int:
     ap.add_argument("--interval", type=int, default=1800, help="常驻模式的间隔秒数")
     ap.add_argument("--doctor", action="store_true", help="环境体检：依赖/浏览器/配置/通知")
     ap.add_argument("--probe", action="store_true", help="配合 --doctor，额外做网络连通性探测")
+    ap.add_argument("--web", action="store_true", help="启动 Web 控制台（Cookie 导入/签到记录/手动签到）")
+    ap.add_argument("--web-host", default=os.environ.get("WEB_HOST", "0.0.0.0"))
+    ap.add_argument("--web-port", type=int, default=int(os.environ.get("WEB_PORT", "8080")))
     args = ap.parse_args()
 
     if args.list_sites:
@@ -101,28 +104,69 @@ def main() -> int:
         notifier.send("signin-hub 通知测试", "收到这条说明通知配置正常。")
         return 0
 
+    if args.web:
+        return run_web(cfg, log, args)
+
     while True:
-        code = run_once(cfg, log, args, notifier)
+        code, _summary = run_once(cfg, log, args, notifier)
         if not args.daemon:
             return code
         log.info("常驻模式：%s 秒后进入下一轮", args.interval)
         time.sleep(max(60, args.interval))
 
 
-def run_once(cfg, log, args, notifier) -> int:
+def run_web(cfg, log, args) -> int:
+    """Web 控制台；配合 --daemon 时在后台线程跑定时签到，Web 与调度共存一个进程。"""
+    import threading
+    import uvicorn
+
+    from core.webapp import WebApp
+
+    web = WebApp(cfg, log, config_path=args.config)
+
+    if args.daemon:
+        def _daemon():
+            import copy
+            while True:
+                try:
+                    daemon_args = copy.copy(args)
+                    daemon_args.site = None
+                    daemon_args.account = None
+                    daemon_args.force = False
+                    run_once(cfg, log, daemon_args, web_notifier(cfg, log))
+                except Exception:
+                    log.exception("常驻模式本轮异常")
+                log.info("常驻模式：%s 秒后进入下一轮", args.interval)
+                time.sleep(max(60, args.interval))
+        threading.Thread(target=_daemon, daemon=True, name="signin-daemon").start()
+
+    log.info("Web 控制台启动：http://%s:%d（密码%s）",
+             args.web_host, args.web_port,
+             "已启用" if os.environ.get("WEB_PASSWORD") else "未设置，建议配置 WEB_PASSWORD")
+    uvicorn.run(web.app, host=args.web_host, port=args.web_port, log_level="warning")
+    return 0
+
+
+def web_notifier(cfg, log):
+    from core.notify import Notifier
+    return Notifier(cfg.notify, logger=log)
+
+
+def run_once(cfg, log, args, notifier) -> tuple:
+    """执行一轮签到，返回 (exit_code, 汇总文本)。"""
     ctx = Context(runtime=cfg.runtime, logger=log)
     sites = build_sites(cfg, ctx)
 
-    if args.site:
+    if getattr(args, "site", None):
         wanted = set(args.site)
         sites = {k: v for k, v in sites.items() if k in wanted}
-    if args.account:
+    if getattr(args, "account", None):
         for s in sites.values():
             s.cfg.accounts = [a for a in s.cfg.accounts if a.name == args.account]
 
     if not sites:
         log.warning("没有可执行的站点，请检查配置与账号")
-        return 1
+        return 1, "没有可执行的站点，请检查配置与账号"
 
     state = State(ROOT / cfg.runtime.state_db, logger=log)
     runner = Runner(cfg, state, log)
@@ -141,7 +185,7 @@ def run_once(cfg, log, args, notifier) -> int:
         title = "signin-hub 签到汇总" + ("（有失败项）" if failed else "")
         notifier.send(title, summary)
 
-    return 0 if all(r.ok for r in results) else 1
+    return (0 if all(r.ok for r in results) else 1), summary
 
 
 if __name__ == "__main__":
