@@ -11,7 +11,7 @@ import time
 
 from core.base import BaseSite, SigninResult
 from core.config import Account
-from core.http import is_cf_challenge
+from core.http import is_cf_challenge, parse_cookie
 
 BASE = "https://www.v2ex.com"
 MISSION_URL = BASE + "/mission/daily"

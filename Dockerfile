@@ -1,4 +1,6 @@
-FROM python:3.12-slim
+# 大陆网络构建时可用：--build-arg BASE_IMAGE=docker.1ms.run/library/python:3.12-slim
+ARG BASE_IMAGE=python:3.12-slim
+FROM ${BASE_IMAGE}
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
