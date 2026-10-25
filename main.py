@@ -102,14 +102,14 @@ def main() -> int:
         return 0
 
     while True:
-        code = run_once(cfg, log, args)
+        code = run_once(cfg, log, args, notifier)
         if not args.daemon:
             return code
         log.info("常驻模式：%s 秒后进入下一轮", args.interval)
         time.sleep(max(60, args.interval))
 
 
-def run_once(cfg, log, args) -> int:
+def run_once(cfg, log, args, notifier) -> int:
     ctx = Context(runtime=cfg.runtime, logger=log)
     sites = build_sites(cfg, ctx)
 

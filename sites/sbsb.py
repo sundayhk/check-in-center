@@ -27,7 +27,15 @@ HOME_URL = BASE + "/"
 
 # sb.sb 对部分地区直接封锁：所有路径都返回同一个占位页（伪装成 404），
 # 里面带着这句 description。不识别的话只会看到一个莫名其妙的 404。
-REGION_BLOCK_MARKERS = ("暂未对您所在地区开放", "not available in your region")
+# 不同 CDN 节点返回的封锁文案略有差异，这里多收几条。
+REGION_BLOCK_MARKERS = (
+    "暂未对您所在地区开放",
+    "未对您所在地区开放",
+    "not available in your region",
+    "地区未开放",
+    "地区暂未开放",
+    "所在地区暂未开放",
+)
 
 REWARD_PATTERNS = (
     r"获得\s*(\d+)\s*个?\s*烧饼",
@@ -105,6 +113,12 @@ class SbSbSite(BaseSite):
         )
         if is_cf_challenge(r2):
             raise _Escalate("签到请求被 Cloudflare 拦截")
+        # 地区封锁时，POST 与确认 GET 都会落到同一个占位 404 页
+        if is_blocked_region(r2.text):
+            return self.fatal_fail(
+                account,
+                "sb.sb 对当前出口网络不可用（疑似地区封锁）。请在 config.yaml 配置 "
+                "runtime.proxy 指向可用出口，或临时关闭该站点（sites.sbsb.enabled: false）。")
 
         payload: Any = None
         try:
@@ -121,12 +135,21 @@ class SbSbSite(BaseSite):
 
         # POST 返回的可能是跳转页，再拉一次确认
         r3 = http.get(SIGNIN_URL, headers={"Referer": SIGNIN_URL})
+        if is_blocked_region(r3.text):
+            return self.fatal_fail(
+                account,
+                "sb.sb 对当前出口网络不可用（疑似地区封锁）。请在 config.yaml 配置 "
+                "runtime.proxy 指向可用出口，或临时关闭该站点（sites.sbsb.enabled: false）。")
         final = parse_signin_state(r3.text)
         if final["signed"]:
             return self.result(account, "success", "签到成功", _reward(r3.text), _meta(r3.text))
         if final["login_required"]:
             return self.result(account, "failed", "登录态丢失，Cookie 已失效")
-        return self.result(account, "failed", f"签到后未确认成功（HTTP {r2.status_code}）")
+        return self.result(
+            account, "failed",
+            f"签到后未确认成功（HTTP {r2.status_code}）；"
+            f"若当前出口网络被 sb.sb 地区封锁，请配置 runtime.proxy 或改用策略 "
+            f"strategy: browser（在 config.yaml 的 sbsb 下加 strategy: browser）")
 
     # ---------------- L2/L3 ----------------
     def _via_browser(self, account: Account) -> SigninResult:

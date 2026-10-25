@@ -129,12 +129,13 @@ Fork 后在 `Settings → Secrets and variables → Actions` 里配置 `NS_COOKI
 |---|---|
 | NodeSeek 报「Cookie 已失效」 | 确认是整段复制（含 `session`），不要只取 `document.cookie` |
 | 一直卡在 Cloudflare | 配 `PROXY`；把 `browser_backend` 明确设为 `camoufox`；`headless: false` 本地调试观察 |
-| **浏览器通道报未找到后端 / 不可用** | 装 pip 包不算完，还要拉浏览器内核：`pip install -U camoufox && python -m camoufox fetch`（或 `pip install playwright && playwright install chromium`）。Docker 构建里若 `camoufox fetch` 失败，镜像会直接构建失败，不会带病出厂 |
+| **浏览器通道报未找到后端 / 不可用** | 装 pip 包不算完，还要拉浏览器内核：`pip install -U camoufox && python -m camoufox fetch`（或 `pip install playwright && playwright install chromium`）。Docker 构建里若两者都失败，镜像会直接构建失败，不会带病出厂 |
+| **`Failed to launch the browser process`（camoufox 启动失败）** | 两个最常见原因：① **缺系统库**——错误里会列出 `ldd` 缺失的 `.so`，在容器内 `apt-get install` 对应的库即可；② **ARM 架构**（如 aarch64 机器）——camoufox 官方内核仅 x86_64，会直接启动失败。本项目已支持 **auto 模式下自动降级到 Playwright Chromium**（原生支持 ARM），只要 `playwright install chromium` 过就没问题，无需改配置 |
 | Camoufox 启动慢 / 报 UBO 下载失败 | 保留默认 `camoufox_exclude_addons: true`，跳过 uBlock Origin 下载 |
 | 所有账号 cookie 都是空的 | 检查 `.env` 是否在**项目根目录**（非 `core/`），变量名是否与 config.yaml 对得上；`--doctor` 的「配置」段会显示每个账号的 cookie 长度 |
-| V2EX 找不到领取链接 | 可能早于 08:00 或今日已领；加 `--force` 复测 |
+| V2EX 报「Cookie 已失效（A2）」 | V2EX 的 `A2` Cookie 有效期约 1 个月，过期就会这样。重新从浏览器复制整段 Cookie（含 `A2`）即可 |
 | 烧饼报未取到 `_csrf` | 页面结构可能变化，或已被重定向到登录页，重新抓 Cookie |
-| sb.sb 报 HTTP 404 | **多数不是路径错，是当前出口 IP 所在地区被站点封锁**（页面里写着「暂未对您所在地区开放」）。换到可访问的出口网络或配代理后再跑 |
+| sb.sb 报 HTTP 404 / 地区封锁 | **多数不是路径错，是当前出口 IP 所在地区被站点封锁**（页面里写着「暂未对您所在地区开放」）。换到可访问的出口网络或配置 `runtime.proxy` 后再跑；若长期无法访问，可在 config.yaml 设 `sites.sbsb.enabled: false` 关掉该站 |
 | sb.sb 报未找到签到入口 | 确认 cookie 有效；把日志里打印的按钮文案发出来对照，必要时改 `sites/sbsb.py` 的选择器 |
 | 日志出现「状态库不可用」 | `data/` 目录不可写时会降级为内存去重，签到照常；不影响本次执行 |
 
@@ -142,14 +143,3 @@ Fork 后在 `Settings → Secrets and variables → Actions` 里配置 `NS_COOKI
 - 只做签到，不做评论/点赞等会产生他人可见内容的操作（评论区互动有被举报风险）
 - 每日结果都会推送，Cookie 失效立即告警，不会静默失败
 - 仅供个人自动化使用，请遵守各站点规则
-
-## 故障排查
-
-| 现象 | 处理 |
-|---|---|
-| NodeSeek 报「Cookie 已失效」 | 确认是整段复制（含 `session`），不要只取 `document.cookie` |
-| 一直卡在 Cloudflare | 配 `PROXY`；把 `browser_backend` 明确设为 `camoufox`；`headless: false` 本地调试观察 |
-| 浏览器通道报未找到后端 | `pip install camoufox && python -m camoufox fetch` |
-| V2EX 找不到领取链接 | 可能早于 08:00 或今日已领；加 `--force` 复测 |
-| 烧饼报未取到 `_csrf` | 页面结构可能变化，或已被重定向到登录页，重新抓 Cookie |
-| sb.sb 报未找到签到入口 | 确认 cookie 有效；把日志里打印的按钮文案发出来对照，必要时改 `sites/sbsb.py` 的选择器 |

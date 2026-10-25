@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import os
+import platform
+import subprocess
 import time
 from importlib import util as _importlib_util
 from pathlib import Path
@@ -82,6 +84,43 @@ def _camoufox_binary_ready() -> Optional[bool]:
             return False
         # 其余异常（无网络 / GitHub 404）多半也是因为本地压根没装
         return False if (inst and not inst.exists()) else None
+
+
+def _camoufox_binary_path() -> Optional[Path]:
+    """定位 camoufox 浏览器内核可执行文件，找不到返回 None。"""
+    if not _has("camoufox"):
+        return None
+    try:
+        from camoufox import pkgman  # type: ignore
+    except Exception:
+        return None
+    inst = Path(str(getattr(pkgman, "INSTALL_DIR", "") or ""))
+    if inst and inst.exists():
+        for p in inst.rglob("*"):
+            if p.is_file() and p.name in CAMOUFOX_BIN_NAMES:
+                return p
+    try:
+        p = pkgman.launch_path()
+        if p and Path(str(p)).exists():
+            return Path(str(p))
+    except Exception:
+        pass
+    return None
+
+
+def _ldd_missing(bin_path: Path) -> List[str]:
+    """列出动态链接里 'not found' 的共享库，用于诊断内核启动失败。"""
+    try:
+        out = subprocess.run(["ldd", str(bin_path)], capture_output=True,
+                             text=True, timeout=15)
+    except Exception:
+        return []
+    missing: List[str] = []
+    for line in out.stdout.splitlines():
+        if "not found" in line:
+            # 形如 "libnss3.so => not found"
+            missing.append(line.strip())
+    return missing
 
 
 def _playwright_chromium_ready() -> bool:
@@ -168,38 +207,74 @@ class BrowserSession:
             raise BrowserUnavailable(msg)
         backend = actual
 
-        try:
-            if backend == "camoufox":
-                from camoufox.sync_api import Camoufox
-                self._cm = Camoufox(**camoufox_kwargs(headless=self.headless, proxy=self.proxy,
-                                                     exclude_addons=self.exclude_addons))
-                self._browser = self._cm.__enter__()
-                self.page = self._browser.new_page()
-            else:
-                from playwright.sync_api import sync_playwright
-                self._pw = sync_playwright().start()
-                self._browser = self._pw.chromium.launch(
-                    headless=self.headless,
-                    proxy={"server": self.proxy} if self.proxy else None,
-                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
-                )
-                self.context = self._browser.new_context(
-                    locale="zh-CN",
-                    viewport={"width": 1440, "height": 900},
-                    user_agent=UA,
-                )
-                self.page = self.context.new_page()
-        except Exception as e:  # 内核缺失 / 依赖库缺失 / 沙箱限制等，统一转成可读错误
-            hint = "python -m camoufox fetch" if backend == "camoufox" else "playwright install chromium"
-            raise BrowserUnavailable(
-                f"{backend} 启动失败：{type(e).__name__}: {str(e)[:160]}（可尝试重新拉取内核：{hint}）"
-            ) from e
+        if backend == "camoufox":
+            try:
+                self._start_camoufox()
+            except BrowserUnavailable as e:
+                # auto 模式下若 camoufox 不可用（如 ARM 架构缺 x86 内核 / 缺系统库），
+                # 自动降级到 playwright（其 chromium 原生支持 aarch64）。
+                if requested in ("auto", "camoufox") and self._playwright_usable():
+                    self.log.warning("camoufox 启动失败，自动降级到 playwright：%s", e)
+                    backend = "playwright"
+                else:
+                    raise
+        if backend == "playwright":
+            self._start_playwright()
+
         if self.context is None:
             self.context = self.page.context
         self._real_backend = backend
         if self.log:
             self.log.info("浏览器通道启动：backend=%s headless=%s", backend, self.headless)
         return self
+
+    def _start_camoufox(self) -> None:
+        from camoufox.sync_api import Camoufox
+        self._cm = Camoufox(**camoufox_kwargs(headless=self.headless, proxy=self.proxy,
+                                             exclude_addons=self.exclude_addons))
+        try:
+            self._browser = self._cm.__enter__()
+            self.page = self._browser.new_page()
+        except Exception as e:
+            bp = _camoufox_binary_path()
+            if bp and _ldd_missing(bp):
+                miss = _ldd_missing(bp)
+                hint = (f"camoufox 启动失败：缺少系统运行库（{len(miss)} 个）。\n"
+                        f"在容器内执行 `ldd {bp}` 查看缺失项并安装对应依赖，\n"
+                        f"或改用 playwright：browser_backend 设为 playwright，"
+                        f"再 `playwright install chromium`。\n缺失样例：{miss[:4]}")
+            elif platform.machine().lower() in ("aarch64", "arm64"):
+                hint = (f"camoufox 启动失败：当前为 ARM 架构（{platform.machine()}），"
+                        f"camoufox 官方内核仅 x86_64。请改用 playwright：\n"
+                        f"  pip install playwright && playwright install chromium\n"
+                        f"再把 config 的 runtime.browser_backend 设为 playwright。")
+            else:
+                hint = f"camoufox 启动失败：{type(e).__name__}: {str(e)[:160]}"
+            raise BrowserUnavailable(hint) from e
+
+    def _start_playwright(self) -> None:
+        from playwright.sync_api import sync_playwright
+        self._pw = sync_playwright().start()
+        try:
+            self._browser = self._pw.chromium.launch(
+                headless=self.headless,
+                proxy={"server": self.proxy} if self.proxy else None,
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+            )
+        except Exception as e:
+            raise BrowserUnavailable(
+                f"playwright 启动失败：{type(e).__name__}: {str(e)[:160]}"
+                f"（可尝试 `playwright install chromium` 与安装系统依赖）"
+            ) from e
+        self.context = self._browser.new_context(
+            locale="zh-CN",
+            viewport={"width": 1440, "height": 900},
+            user_agent=UA,
+        )
+        self.page = self.context.new_page()
+
+    def _playwright_usable(self) -> bool:
+        return _has("playwright") and _playwright_chromium_ready()
 
     def close(self) -> None:
         for closer in (
