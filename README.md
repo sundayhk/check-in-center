@@ -62,7 +62,8 @@ python main.py                   # 真跑
 ### V2EX
 
 - `GET /mission/daily` 页面里找 `/mission/daily/redeem?once=NNNN`，再 GET 一次即领取
-- Cookie 只要 `A2` 那一段
+- 2026-10 起需要 `A2` + `PB3_SESSION`（+ `A2O` / `V2EX_TAB`）等字段；只复制这几个即可，
+  别带上 `_ga_*` 统计 cookie——里面的 `$` 会被 docker compose 变量插值告警并截断
 - 北京时间 08:00 前一般领不了，建议排在 08:30 之后
 - 基本无 Cloudflare；但 2026-10 起部分出口 IP（数据中心/大陆）会被 403，需配置 PROXY 代理；
   curl_cffi 请求即可通过（无需浏览器）
