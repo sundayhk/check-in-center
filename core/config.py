@@ -125,7 +125,8 @@ def _build(data: Dict[str, Any]) -> Config:
         camoufox_exclude_addons=(
             str(rt.get("camoufox_exclude_addons",
                        os.environ.get("CAMOUFOX_EXCLUDE_ADDONS", "true"))).lower() != "false"),
-        proxy=str(rt.get("proxy") or os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or ""),
+        proxy=str(rt.get("proxy") or os.environ.get("PROXY") or os.environ.get("HTTPS_PROXY")
+                  or os.environ.get("https_proxy") or ""),
         timeout=int(rt.get("timeout", 30)),
         cf_wait_timeout=int(rt.get("cf_wait_timeout", 90)),
         retries=int(rt.get("retries", 1)),

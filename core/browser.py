@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
+import sys
 import time
 from importlib import util as _importlib_util
 from pathlib import Path
@@ -127,11 +128,19 @@ def _playwright_chromium_ready() -> bool:
     """playwright 的 chromium 是否已 install。"""
     if not _has("playwright"):
         return False
-    root = os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or str(Path.home() / ".cache" / "ms-playwright")
-    try:
-        return any(Path(root).glob("chromium-*"))
-    except Exception:
-        return False
+    if os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+        roots = [Path(os.environ["PLAYWRIGHT_BROWSERS_PATH"])]
+    else:
+        roots = [Path.home() / ".cache" / "ms-playwright"]
+        if sys.platform == "darwin":
+            roots.append(Path.home() / "Library" / "Caches" / "ms-playwright")
+    for root in roots:
+        try:
+            if any(root.glob("chromium-*")):
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def diagnose(backend: str = "auto") -> Tuple[str, str, List[str]]:

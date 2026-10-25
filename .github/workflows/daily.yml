@@ -1,0 +1,60 @@
+name: signin-hub 定时签到
+
+on:
+  schedule:
+    # UTC 时间；北京时间 = UTC + 8
+    - cron: '10 16 * * *'   # 北京 00:10 全量跑（NodeSeek 主签到）
+    - cron: '30 0 * * *'    # 北京 08:30 全量跑（V2EX / 烧饼 主签到）
+    - cron: '20 4 * * *'    # 北京 12:20 兜底补签（当日去重，已签过的会跳过）
+  workflow_dispatch:
+    inputs:
+      site:
+        description: '只跑某个站点（留空跑全部）'
+        required: false
+      force:
+        description: '忽略当日已完成记录'
+        required: false
+        type: boolean
+
+jobs:
+  signin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # 浏览器通道：GitHub Actions 出口 IP 容易被 CF 挑战，装上更稳
+          python -m camoufox fetch || true
+          python -m playwright install --with-deps chromium || true
+
+      - name: 执行签到
+        env:
+          TZ: Asia/Shanghai
+          HEADLESS: 'true'
+          NS_COOKIE: ${{ secrets.NS_COOKIE }}
+          NS_MODE: ${{ vars.NS_MODE || 'random' }}
+          NS_STRATEGY: ${{ vars.NS_STRATEGY || 'auto' }}
+          V2EX_COOKIE: ${{ secrets.V2EX_COOKIE }}
+          LINUXSB_COOKIE: ${{ secrets.LINUXSB_COOKIE }}
+          LINUXSB_USERNAME: ${{ secrets.LINUXSB_USERNAME }}
+          LINUXSB_PASSWORD: ${{ secrets.LINUXSB_PASSWORD }}
+          SBSB_COOKIE: ${{ secrets.SBSB_COOKIE }}
+          SBSB_USERNAME: ${{ secrets.SBSB_USERNAME }}
+          SBSB_PASSWORD: ${{ secrets.SBSB_PASSWORD }}
+          PROXY: ${{ secrets.PROXY }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TG_THREAD_ID: ${{ secrets.TG_THREAD_ID }}
+        run: |
+          args=()
+          [ -n "${{ inputs.site }}" ] && args+=(--site "${{ inputs.site }}")
+          [ "${{ inputs.force }}" = "true" ] && args+=(--force)
+          python main.py "${args[@]}"

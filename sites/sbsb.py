@@ -1,12 +1,15 @@
 """烧饼论坛（sb.sb）每日签到。
 
-站点自建程序（Discourse 风格路由 /t/ /u/ /go/），签到页是 /signin/：
-  GET  /signin/  读状态并取表单里的 _csrf
-  POST /signin/  提交 _csrf=xxx 完成签到
-页面上「已签到」的判定：按钮文案含「今日已签到」或存在 .signin-cal-day.done.today
-奖励为随机 1~10 烧饼，按 UTC 日期计算，北京时间每天 08:00 刷新。
+2026-10 起站点改版：签到页从 /signin/ 迁到 /checkin/（旧路径 301，但 POST 旧路径会 404），
+且提交前必须通过 cap.js 人机验证（cap-widget，自定义 hashwx wasm 的 PoW 挑战），
+solve 事件把 token 写进表单隐藏域 input[name="cap-token"] 后才真正提交。
 
-L1 走 curl_cffi；被 Cloudflare 拦或 cookie 失效时升级到浏览器通道（可配账号密码自动登录）。
+PoW 求解依赖站点私有 wasm，脚本层无法复刻，因此默认走浏览器通道：
+  点击「立即签到」-> 弹出 cap 模态框 -> 点击 cap-widget 自动完成 PoW
+  -> 'solve' 事件自动写入 token 并 requestSubmit -> 校验签到结果。
+
+L1（strategy=api）仍保留：POST /checkin/ 带 _csrf，但没有 cap-token 通常会被拒，
+仅作为站点取消验证时的应急通道。
 """
 from __future__ import annotations
 
@@ -21,7 +24,7 @@ from core.config import Account
 from core.http import is_cf_challenge
 
 BASE = "https://sb.sb"
-SIGNIN_URL = BASE + "/signin/"
+SIGNIN_URL = BASE + "/checkin/"
 LOGIN_URL = BASE + "/login/"
 HOME_URL = BASE + "/"
 
@@ -71,13 +74,13 @@ class SbSbSite(BaseSite):
     display = "烧饼论坛"
 
     def signin(self, account: Account) -> SigninResult:
-        if str(self.cfg.strategy or "auto").lower() == "browser":
-            return self._via_browser(account)
-        try:
-            return self._via_http(account)
-        except _Escalate as e:
-            self.log.info("烧饼论坛升级到浏览器通道：%s", e)
-            return self._via_browser(account)
+        # 2026-10 改版后 L1 无法通过 cap.js 人机验证，除非显式指定 strategy=api
+        if str(self.cfg.strategy or "auto").lower() == "api":
+            try:
+                return self._via_http(account)
+            except _Escalate as e:
+                self.log.info("烧饼论坛升级到浏览器通道：%s", e)
+        return self._via_browser(account)
 
     # ---------------- L1 ----------------
     def _via_http(self, account: Account) -> SigninResult:
@@ -203,17 +206,45 @@ class SbSbSite(BaseSite):
             return self.result(account, "already", "今日已签到", "", _meta(text))
 
         clicked = (b.click_selector(".signin-hero-action .btn-post")
-                   or b.click_selector('form[action*="/signin"] button[type="submit"]')
+                   or b.click_selector('form[action*="/checkin"] button[type="submit"]')
                    or b.click_button(["签到"]))
         if not clicked:
             return self.result(account, "failed", "未找到签到按钮（页面结构可能已改版）")
 
+        # 改版后弹出 cap.js 人机验证模态框，需要点击 cap-widget 完成算力挑战，
+        # solve 事件会把 token 写入隐藏域并自动 requestSubmit
+        b.wait(1500)
+        b.wait_for_cf(30)
+        cap_js = """
+() => {
+  const w = document.querySelector('.signin-form cap-widget');
+  if (!w) return { found: false };
+  const sr = w.shadowRoot;
+  const hit = sr && sr.querySelector('button, [role="button"], .widget, #adminbar, div');
+  if (hit) hit.click();
+  return { found: true, clicked: !!hit };
+}
+"""
+        try:
+            st = b.eval(cap_js) or {}
+        except Exception:
+            st = {}
+        if st.get("found"):
+            self.log.info("烧饼论坛：cap 人机验证弹窗，点击 widget 求解 PoW")
+            # PoW 通常几秒内完成，solve 后表单会自动提交
+            try:
+                b.page.wait_for_function(
+                    "() => !!document.querySelector('.signin-form input[name=\"cap-token\"]')"
+                    " && !!document.querySelector('.signin-form input[name=\"cap-token\"]').value",
+                    timeout=90000)
+            except Exception:
+                pass
         b.wait(3000)
         b.wait_for_cf(30)
         body = b.text()
         if "今日已签到" in body or "签到成功" in body:
             return self.result(account, "success", "签到成功", _reward(body), _meta(body))
-        return self.result(account, "failed", "点击后未确认成功")
+        return self.result(account, "failed", "点击后未确认成功（可能 cap 人机验证未通过）")
 
 
 class _Escalate(Exception):
@@ -227,7 +258,7 @@ def is_blocked_region(html: str) -> bool:
 
 
 def parse_signin_state(html: str) -> Dict[str, Any]:
-    """解析 /signin/ 页面：是否已签到、是否未登录、csrf、按钮文案。"""
+    """解析 /checkin/ 页面：是否已签到、是否未登录、csrf、按钮文案。"""
     soup = BeautifulSoup(html or "", "html.parser")
     text = soup.get_text(" ", strip=True)
     button = (soup.select_one(".signin-hero-action .btn-post")

@@ -60,11 +60,66 @@ class NodeSeekSite(BaseSite):
         strategy = str(self.cfg.strategy or "auto").lower()
 
         if strategy in ("auto", "api"):
+            r = self._try_curl_cli(account, random_mode)
+            if r is not None:
+                return r
             r = self._try_api(account, random_mode)
             if r is not None:
                 return r
             self.log.info("NodeSeek 接口通道不可用，升级到浏览器通道")
         return self._via_browser(account, random_mode)
+
+    # ---------------- L0：curl CLI（curl_cffi 指纹被 NodeSeek 识别封锁，系统 curl 反而能过） ----------------
+    def _try_curl_cli(self, account: Account, random_mode: bool) -> Optional[SigninResult]:
+        import json as _json
+        import shutil
+        import subprocess
+
+        if not shutil.which("curl"):
+            return None
+        url = API_ATTENDANCE + ("?random=true" if random_mode else "?random=false")
+        cmd = [
+            "curl", "-s", "-m", "30", "-X", "POST", url,
+            "-H", f"Cookie: {account.cookie}",
+            "-H", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "-H", f"Referer: {BOARD_URL}",
+            "-H", f"Origin: {BASE}",
+            "-H", "X-Requested-With: XMLHttpRequest",
+            "-H", "Accept: application/json, text/plain, */*",
+        ]
+        proxy = getattr(self.ctx.runtime, "proxy", "") or ""
+        if proxy:
+            cmd += ["-x", proxy]
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=40).stdout
+        except Exception as e:
+            self.log.info("NodeSeek curl 通道异常：%s", str(e)[:120])
+            return None
+        try:
+            payload = _json.loads(out)
+        except Exception:
+            self.log.info("NodeSeek curl 通道返回非 JSON：%s",
+                          (out or "")[:100].replace("\n", " "))
+            return None
+        if not isinstance(payload, dict):
+            return None
+        msg = str(payload.get("message") or "")
+        if payload.get("success") is False:
+            if any(k in msg for k in ("已签到", "重复", "already")):
+                return self.result(account, "already", msg[:120] or "今日已签到")
+            if "USER NOT FOUND" in msg:
+                return self.result(account, "failed",
+                                   "Cookie 已失效（接口返回 USER NOT FOUND），请重新抓取 session/pjwt")
+            return self.result(account, "failed", msg[:120] or "接口返回失败")
+        if payload.get("success") is True:
+            data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+            reward = data.get("reward") or data.get("amount") or payload.get("reward") or ""
+            balance = str(data.get("balance") or data.get("total") or "")
+            return self.result(account, "success", msg[:120],
+                               f"获得 {reward} 鸡腿" if reward else "",
+                               f"总鸡腿 {balance}" if balance else "")
+        return None
 
     # ---------------- L1：接口尝试 ----------------
     def _try_api(self, account: Account, random_mode: bool) -> Optional[SigninResult]:
@@ -109,8 +164,8 @@ class NodeSeekSite(BaseSite):
         if ok is False:
             if any(k in msg for k in ("已签到", "重复", "already")):
                 return self.result(account, "already", msg[:120] or "今日已签到")
-            if any(k in msg for k in ("登录", "未登录", "unauthorized", "signIn")):
-                return self.result(account, "failed", "Cookie 已失效，请重新抓取")
+            if any(k in msg for k in ("USER NOT FOUND", "登录", "未登录", "unauthorized", "signIn")):
+                return self.result(account, "failed", "Cookie 已失效（接口返回 USER NOT FOUND），请重新抓取 session/pjwt")
             return self.result(account, "failed", msg[:120] or f"接口返回失败（HTTP {resp.status_code}）")
         return None
 
@@ -139,6 +194,9 @@ class NodeSeekSite(BaseSite):
                     body = b.text()
                     if any(k in body for k in ALREADY_KEYS):
                         return self.result(account, "already", "今日已签到", balance=_balance(body))
+                    # cookie 失效时页面无登录态、也没有签到按钮（接口返回 USER NOT FOUND）
+                    if _looks_logged_out(body):
+                        return self.result(account, "failed", "Cookie 已失效，请重新抓取（需含 session/pjwt 字段）")
                     return self.result(account, "failed", "未找到签到按钮（页面结构可能已改版）")
 
                 b.wait(3000)
@@ -163,6 +221,12 @@ def _reward(text: str) -> str:
         if m:
             return m.group(1)
     return ""
+
+
+def _looks_logged_out(body: str) -> bool:
+    """未登录页特征：只有「登录」入口而没有签到相关文案。"""
+    head = (body or "")[:3000]
+    return ("登录" in head or "Sign In" in head) and "签到" not in head
 
 
 def _balance(text: str) -> str:

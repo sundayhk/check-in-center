@@ -64,15 +64,19 @@ python main.py                   # 真跑
 - `GET /mission/daily` 页面里找 `/mission/daily/redeem?once=NNNN`，再 GET 一次即领取
 - Cookie 只要 `A2` 那一段
 - 北京时间 08:00 前一般领不了，建议排在 08:30 之后
-- 基本无 Cloudflare，L1 直连搞定
+- 基本无 Cloudflare；但 2026-10 起部分出口 IP（数据中心/大陆）会被 403，需配置 PROXY 代理；
+  curl_cffi 请求即可通过（无需浏览器）
 
 ### 烧饼论坛 sb.sb（站点 key：`sbsb`）
 
-- 签到页 `https://sb.sb/signin/`：`GET` 取表单 `_csrf`，`POST /signin/` 提交 `_csrf=xxx`
+- 2026-10 改版：签到页迁到 `https://sb.sb/checkin/`（旧 `/signin/` POST 会 404），
+  且提交前必须过 cap.js 人机验证（PoW，站点私有 wasm，脚本无法离线求解）
+- 默认走浏览器通道：点「立即签到」→ 弹出 cap 模态框 → 点击 widget 自动完成 PoW → token 写入表单自动提交
+- 该站对部分地区封锁（直连所有路径返回伪装 404 占位页），需配置 `runtime.proxy`（或 .env 的 PROXY）走可访问出口
 - 「已签到」判定：按钮文案含「今日已签到」，或页面存在 `.signin-cal-day.done.today`
 - 奖励随机 1~10 烧饼，按 UTC 日期计，北京时间每天 08:00 刷新，建议排在 08:30 之后
 - Cookie 整段复制（登录后抓任一 sb.sb 请求的 Request Headers）
-- Cookie 失效时若配了 `username/password`，浏览器通道会自动登录后再签（尽力而为，站点若有验证码会失败并告警）
+- Cookie 失效时若配了 `username/password`，浏览器通道会自动登录后再签（尽力而为）
 
 ### 烧饼社区 linux.sb（站点 key：`linuxsb`）
 
@@ -89,7 +93,7 @@ python main.py                   # 真跑
 
 ```bash
 docker compose build
-docker compose run --rm signin python main.py --test-notify
+docker compose run --rm checkin python main.py --test-notify
 docker compose up -d          # 常驻模式，每 30 分钟一轮，靠 state.db 当日去重
 ```
 

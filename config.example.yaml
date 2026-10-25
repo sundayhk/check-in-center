@@ -61,7 +61,7 @@ sites:
 
   sbsb:                       # 烧饼论坛 https://sb.sb
     enabled: true
-    strategy: auto            # auto | browser
+    strategy: auto            # auto(=浏览器通道，需过 cap.js 人机验证) | api(应急)
     accounts:
       - name: 主号
         cookie: ${SBSB_COOKIE}
