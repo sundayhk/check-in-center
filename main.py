@@ -181,9 +181,13 @@ def run_once(cfg, log, args, notifier) -> tuple:
     print("\n" + summary)
 
     if not args.no_notify and results:
-        failed = [r for r in results if r.status == "failed"]
-        title = "signin-hub 签到汇总" + ("（有失败项）" if failed else "")
-        notifier.send(title, summary)
+        # 全员都是「今日已完成/未配置」的空轮次不打扰：有实际签到动作或失败才推送
+        if all(r.status == "skipped" for r in results):
+            log.info("本轮全部站点均已跳过，不推送通知")
+        else:
+            failed = [r for r in results if r.status == "failed"]
+            title = "signin-hub 签到汇总" + ("（有失败项）" if failed else "")
+            notifier.send(title, summary)
 
     return (0 if all(r.ok for r in results) else 1), summary
 
