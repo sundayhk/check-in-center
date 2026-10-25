@@ -6,9 +6,11 @@
 """
 from __future__ import annotations
 
+import os
 import time
 from importlib import util as _importlib_util
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from .http import UA, parse_cookie
 
@@ -25,6 +27,20 @@ CF_BODY_MARKERS = (
 SKIP_COOKIE_PREFIXES = ("cf_clearance", "__cf_bm", "__cflb", "_ga", "_gid", "_gat")
 
 
+def camoufox_kwargs(headless: bool, proxy: str = "", exclude_addons: bool = True) -> Dict[str, Any]:
+    """组装 Camoufox 启动参数，按版本能力降级兼容。"""
+    kw: Dict[str, Any] = {"headless": headless}
+    if proxy:
+        kw["proxy"] = {"server": proxy}
+    if exclude_addons:
+        try:
+            from camoufox.addons import DefaultAddons  # type: ignore
+            kw["exclude_addons"] = [DefaultAddons.UBO]
+        except Exception:
+            pass  # 老版本没有该参数，忽略即可
+    return kw
+
+
 class BrowserUnavailable(RuntimeError):
     pass
 
@@ -36,16 +52,98 @@ def _has(module: str) -> bool:
         return False
 
 
+CAMOUFOX_BIN_NAMES = ("camoufox", "camoufox-bin", "camoufox.exe")
+
+
+def _camoufox_binary_ready() -> Optional[bool]:
+    """camoufox 浏览器内核是否已下载。True=OK，False=缺内核，None=判断不了。
+
+    注意：pkgman.launch_path() 在内核缺失时会去 GitHub 查版本号，
+    断网环境下抛 HTTPError 而非 CamoufoxNotInstalled，所以先用本地目录判定。
+    """
+    if not _has("camoufox"):
+        return None
+    try:
+        from camoufox import pkgman  # type: ignore
+    except Exception:
+        return None
+
+    inst = Path(str(getattr(pkgman, "INSTALL_DIR", "") or ""))
+    if inst and inst.exists():
+        for p in inst.rglob("*"):
+            if p.is_file() and p.name in CAMOUFOX_BIN_NAMES:
+                return True
+    # 本地目录没有，再让 camoufox 自己判一次（兼容 install 到自定义路径的情况）
+    try:
+        p = pkgman.launch_path()
+        return bool(p) and Path(str(p)).exists()
+    except Exception as e:
+        if type(e).__name__ == "CamoufoxNotInstalled":
+            return False
+        # 其余异常（无网络 / GitHub 404）多半也是因为本地压根没装
+        return False if (inst and not inst.exists()) else None
+
+
+def _playwright_chromium_ready() -> bool:
+    """playwright 的 chromium 是否已 install。"""
+    if not _has("playwright"):
+        return False
+    root = os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or str(Path.home() / ".cache" / "ms-playwright")
+    try:
+        return any(Path(root).glob("chromium-*"))
+    except Exception:
+        return False
+
+
+def diagnose(backend: str = "auto") -> Tuple[str, str, List[str]]:
+    """体检浏览器通道。
+
+    返回 (实际后端或 None, 结论文案, 修复建议列表)。
+    """
+    fixes: List[str] = []
+    if backend in ("auto", ""):
+        backend = "camoufox" if _has("camoufox") else ("playwright" if _has("playwright") else "")
+
+    if backend == "none":
+        return "none", "已通过 browser_backend=none 显式禁用浏览器通道", []
+
+    if backend == "camoufox":
+        ready = _camoufox_binary_ready()
+        if not _has("camoufox"):
+            return "", "未安装 camoufox（Python 包）", ["pip install -U camoufox", "python -m camoufox fetch"]
+        if ready is False:
+            fixes.append("python -m camoufox fetch          # 下载 Camoufox 浏览器内核")
+            return "", "camoufox 已安装，但浏览器内核未下载", fixes
+        return "camoufox", "camoufox 可用", []
+
+    if backend == "playwright":
+        if not _has("playwright"):
+            return "", "未安装 playwright（Python 包）", ["pip install playwright", "playwright install chromium"]
+        if not _playwright_chromium_ready():
+            fixes.append("playwright install chromium       # 下载 Chromium 内核")
+            return "", "playwright 已安装，但 chromium 内核未下载", fixes
+        return "playwright", "playwright 可用", []
+
+    return "", "未找到任何浏览器后端", [
+        "pip install -U camoufox && python -m camoufox fetch      # 推荐，反检测更强",
+        "或：pip install playwright && playwright install chromium",
+    ]
+
+
 class BrowserSession:
     """Playwright 风格 API 的浏览器会话（Camoufox 与 Playwright 通用）。"""
 
     def __init__(self, backend: str = "auto", proxy: str = "", headless: bool = True,
-                 cf_timeout: int = 90, logger: Optional[Any] = None):
+                 cf_timeout: int = 90, logger: Optional[Any] = None,
+                 exclude_addons: bool = True):
         self.backend = backend
         self.proxy = proxy
         self.headless = headless
         self.cf_timeout = cf_timeout
         self.log = logger
+        # Camoufox 默认会联网拉 uBlock Origin；对签到无用，且 addons.mozilla.org
+        # 在国内经常 451/超时导致启动失败，默认排除。
+        self.exclude_addons = exclude_addons
         self.page: Any = None
         self.context: Any = None
         self._browser: Any = None
@@ -61,35 +159,41 @@ class BrowserSession:
         self.close()
 
     def start(self) -> "BrowserSession":
-        backend = self.backend
-        if backend in ("auto", ""):
-            backend = "camoufox" if _has("camoufox") else ("playwright" if _has("playwright") else "")
-        if backend == "none":
-            raise BrowserUnavailable("browser_backend=none，已禁用浏览器通道")
-        if backend == "camoufox":
-            from camoufox.sync_api import Camoufox
-            kw: Dict[str, Any] = {"headless": self.headless}
-            if self.proxy:
-                kw["proxy"] = {"server": self.proxy}
-            self._cm = Camoufox(**kw)
-            self._browser = self._cm.__enter__()
-            self.page = self._browser.new_page()
-        elif backend == "playwright":
-            from playwright.sync_api import sync_playwright
-            self._pw = sync_playwright().start()
-            self._browser = self._pw.chromium.launch(
-                headless=self.headless,
-                proxy={"server": self.proxy} if self.proxy else None,
-                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
-            )
-            self.context = self._browser.new_context(
-                locale="zh-CN",
-                viewport={"width": 1440, "height": 900},
-                user_agent=UA,
-            )
-            self.page = self.context.new_page()
-        else:
-            raise BrowserUnavailable("未找到可用的浏览器后端，请安装 camoufox 或 playwright")
+        requested = self.backend
+        actual, verdict, fixes = diagnose(requested)
+        if not actual:
+            msg = f"浏览器通道不可用：{verdict}"
+            if fixes:
+                msg += "。修复：" + "；".join(fixes)
+            raise BrowserUnavailable(msg)
+        backend = actual
+
+        try:
+            if backend == "camoufox":
+                from camoufox.sync_api import Camoufox
+                self._cm = Camoufox(**camoufox_kwargs(headless=self.headless, proxy=self.proxy,
+                                                     exclude_addons=self.exclude_addons))
+                self._browser = self._cm.__enter__()
+                self.page = self._browser.new_page()
+            else:
+                from playwright.sync_api import sync_playwright
+                self._pw = sync_playwright().start()
+                self._browser = self._pw.chromium.launch(
+                    headless=self.headless,
+                    proxy={"server": self.proxy} if self.proxy else None,
+                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+                )
+                self.context = self._browser.new_context(
+                    locale="zh-CN",
+                    viewport={"width": 1440, "height": 900},
+                    user_agent=UA,
+                )
+                self.page = self.context.new_page()
+        except Exception as e:  # 内核缺失 / 依赖库缺失 / 沙箱限制等，统一转成可读错误
+            hint = "python -m camoufox fetch" if backend == "camoufox" else "playwright install chromium"
+            raise BrowserUnavailable(
+                f"{backend} 启动失败：{type(e).__name__}: {str(e)[:160]}（可尝试重新拉取内核：{hint}）"
+            ) from e
         if self.context is None:
             self.context = self.page.context
         self._real_backend = backend

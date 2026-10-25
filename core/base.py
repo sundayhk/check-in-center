@@ -17,6 +17,7 @@ class SigninResult:
     message: str = ""
     reward: str = ""
     balance: str = ""
+    fatal: bool = False         # True=环境级问题（如浏览器内核缺失），重试无意义
     extra: Dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -62,6 +63,7 @@ class Context:
             headless=self.runtime.headless,
             cf_timeout=self.runtime.cf_wait_timeout,
             logger=self.logger,
+            exclude_addons=getattr(self.runtime, "camoufox_exclude_addons", True),
         )
         opts.update(kw)
         return BrowserSession(**opts)
@@ -87,8 +89,15 @@ class BaseSite(ABC):
         return self.cfg.opt(key, default)
 
     def result(self, account: Account, status: str, message: str = "",
-               reward: str = "", balance: str = "", **extra: Any) -> SigninResult:
+               reward: str = "", balance: str = "", fatal: bool = False,
+               **extra: Any) -> SigninResult:
         return SigninResult(
             site=self.name, display=self.display, account=account.name,
-            status=status, message=message, reward=reward, balance=balance, extra=extra,
+            status=status, message=message, reward=reward, balance=balance,
+            fatal=fatal, extra=extra,
         )
+
+    def fatal_fail(self, account: Account, message: str) -> SigninResult:
+        """环境级失败：浏览器不可用、依赖缺失等，重试也没用。"""
+        self.log.error("%s/%s 环境级失败：%s", self.display, account.name, message)
+        return self.result(account, "failed", message, fatal=True)

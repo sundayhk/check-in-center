@@ -10,56 +10,97 @@ from .base import SigninResult
 
 
 class State:
-    def __init__(self, db_path: str | Path):
+    """当日去重 + 历史留痕。
+
+    状态库是辅助设施：磁盘只读、权限不足、tmp 不可用等情况都应该只降级为
+    「不去重」，绝不能让签到主流程整个崩掉。
+    """
+
+    def __init__(self, db_path: str | Path, logger=None):
         self.path = Path(db_path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.path))
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS signin_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                day TEXT NOT NULL,
-                ts TEXT NOT NULL,
-                site TEXT NOT NULL,
-                account TEXT NOT NULL,
-                status TEXT NOT NULL,
-                message TEXT,
-                reward TEXT,
-                balance TEXT,
-                UNIQUE(day, site, account)
-            )
-        """)
-        self.conn.commit()
+        self.log = logger
+        self.conn = None
+        self.degraded = False
+        self._memory: set = set()          # 降级时用的内存去重表
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.conn = sqlite3.connect(str(self.path), timeout=10)
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS signin_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    day TEXT NOT NULL,
+                    ts TEXT NOT NULL,
+                    site TEXT NOT NULL,
+                    account TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    message TEXT,
+                    reward TEXT,
+                    balance TEXT,
+                    UNIQUE(day, site, account)
+                )
+            """)
+            self.conn.commit()
+        except Exception as e:
+            self._downgrade(f"状态库不可用（{type(e).__name__}: {e}）")
+
+    def _downgrade(self, reason: str) -> None:
+        if not self.degraded:
+            self.degraded = True
+            if self.log:
+                self.log.warning("%s，本次运行的去重失效，改为内存去重", reason)
+        self.conn = None
 
     def today(self) -> str:
         return datetime.now().strftime("%Y-%m-%d")
 
     def done_today(self, site: str, account: str, day: Optional[str] = None) -> bool:
         day = day or self.today()
-        cur = self.conn.execute(
-            "SELECT status FROM signin_log WHERE day=? AND site=? AND account=?",
-            (day, site, account),
-        )
-        row = cur.fetchone()
+        key = (day, site, account)
+        if self.conn is None:
+            return key in self._memory
+        try:
+            cur = self.conn.execute(
+                "SELECT status FROM signin_log WHERE day=? AND site=? AND account=?",
+                (day, site, account),
+            )
+            row = cur.fetchone()
+        except Exception as e:
+            self._downgrade(f"读取状态失败（{e}）")
+            return key in self._memory
         return bool(row and row[0] in ("success", "already"))
 
     def record(self, r: SigninResult, day: Optional[str] = None) -> None:
         day = day or self.today()
-        self.conn.execute(
-            """INSERT INTO signin_log (day, ts, site, account, status, message, reward, balance)
-               VALUES (?,?,?,?,?,?,?,?)
-               ON CONFLICT(day, site, account) DO UPDATE SET
-                 ts=excluded.ts, status=excluded.status, message=excluded.message,
-                 reward=excluded.reward, balance=excluded.balance""",
-            (day, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), r.site, r.account,
-             r.status, r.message[:300], r.reward, r.balance),
-        )
-        self.conn.commit()
+        key = (day, r.site, r.account)
+        row = (day, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), r.site, r.account,
+               r.status, r.message[:300], r.reward, r.balance)
+        if r.ok:
+            self._memory.add(key)
+        if self.conn is None:
+            return
+        try:
+            self.conn.execute(
+                """INSERT INTO signin_log (day, ts, site, account, status, message, reward, balance)
+                   VALUES (?,?,?,?,?,?,?,?)
+                   ON CONFLICT(day, site, account) DO UPDATE SET
+                     ts=excluded.ts, status=excluded.status, message=excluded.message,
+                     reward=excluded.reward, balance=excluded.balance""",
+                row,
+            )
+            self.conn.commit()
+        except Exception as e:
+            self._downgrade(f"写入状态失败（{e}）")
 
     def history(self, site: str, account: str, limit: int = 7) -> List[tuple]:
-        cur = self.conn.execute(
-            "SELECT day, status, reward FROM signin_log WHERE site=? AND account=? "
-            "ORDER BY day DESC LIMIT ?", (site, account, limit))
-        return cur.fetchall()
+        if self.conn is None:
+            return []
+        try:
+            cur = self.conn.execute(
+                "SELECT day, status, reward FROM signin_log WHERE site=? AND account=? "
+                "ORDER BY day DESC LIMIT ?", (site, account, limit))
+            return cur.fetchall()
+        except Exception:
+            return []
 
     def streak(self, site: str, account: str) -> int:
         """连续成功天数（简单按日期倒序推算）。"""

@@ -8,6 +8,7 @@ runtime:
   state_db: data/state.db
   headless: true              # 浏览器通道是否无头（本地调试可设 false）
   browser_backend: auto       # auto | camoufox | playwright | none
+  camoufox_exclude_addons: true  # 不联网拉 uBlock Origin，避免启动失败/变慢
   proxy: ""                   # 例：http://127.0.0.1:7890 或 socks5://127.0.0.1:1080
   timeout: 30
   cf_wait_timeout: 90        # 等待 Cloudflare 挑战通过的最长秒数

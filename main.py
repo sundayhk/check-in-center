@@ -31,6 +31,27 @@ from sites import REGISTRY, build_sites            # noqa: E402
 LOG_FMT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 
+def ensure_tempdir() -> None:
+    """确保临时目录可用。
+
+    tempfile.gettempdir() 找不到可用目录时会静默回退到当前工作目录，
+    结果就是项目根目录里散落一堆 8 位随机名的垃圾文件。
+    这里显式探测一次，不可用就兜底到 data/tmp。
+    """
+    import tempfile
+    try:
+        with tempfile.NamedTemporaryFile(delete=True):
+            return
+    except Exception:
+        pass
+    fallback = ROOT / "data" / "tmp"
+    try:
+        fallback.mkdir(parents=True, exist_ok=True)
+        tempfile.tempdir = str(fallback)
+    except Exception:
+        pass
+
+
 def setup_logging(level: str, log_dir: str) -> logging.Logger:
     handlers: list = [logging.StreamHandler(sys.stdout)]
     if log_dir:
@@ -45,6 +66,7 @@ def setup_logging(level: str, log_dir: str) -> logging.Logger:
 
 
 def main() -> int:
+    ensure_tempdir()
     ap = argparse.ArgumentParser(description="signin-hub 多站点自动签到")
     ap.add_argument("--config", help="配置文件路径（默认 ./config.yaml）")
     ap.add_argument("--site", action="append", help="只跑指定站点，可重复使用")
@@ -56,6 +78,8 @@ def main() -> int:
     ap.add_argument("--list-sites", action="store_true", help="列出已注册站点")
     ap.add_argument("--daemon", action="store_true", help="常驻模式，每隔一段时间跑一轮")
     ap.add_argument("--interval", type=int, default=1800, help="常驻模式的间隔秒数")
+    ap.add_argument("--doctor", action="store_true", help="环境体检：依赖/浏览器/配置/通知")
+    ap.add_argument("--probe", action="store_true", help="配合 --doctor，额外做网络连通性探测")
     args = ap.parse_args()
 
     if args.list_sites:
@@ -64,6 +88,13 @@ def main() -> int:
 
     cfg = load_config(args.config)
     log = setup_logging(cfg.runtime.log_level, cfg.runtime.log_dir)
+
+    if args.doctor:
+        from core.doctor import run as doctor_run
+        source = args.config or (
+            "config.yaml" if (ROOT / "config.yaml").exists() else "环境变量模式")
+        print("\n".join(doctor_run(cfg, source, probe=args.probe)))
+        return 0
 
     notifier = Notifier(cfg.notify, logger=log)
     if args.test_notify:
@@ -93,7 +124,7 @@ def run_once(cfg, log, args) -> int:
         log.warning("没有可执行的站点，请检查配置与账号")
         return 1
 
-    state = State(ROOT / cfg.runtime.state_db)
+    state = State(ROOT / cfg.runtime.state_db, logger=log)
     runner = Runner(cfg, state, log)
     log.info("本次任务站点：%s", "、".join(sites.keys()))
 

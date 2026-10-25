@@ -25,6 +25,10 @@ SIGNIN_URL = BASE + "/signin/"
 LOGIN_URL = BASE + "/login/"
 HOME_URL = BASE + "/"
 
+# sb.sb 对部分地区直接封锁：所有路径都返回同一个占位页（伪装成 404），
+# 里面带着这句 description。不识别的话只会看到一个莫名其妙的 404。
+REGION_BLOCK_MARKERS = ("暂未对您所在地区开放", "not available in your region")
+
 REWARD_PATTERNS = (
     r"获得\s*(\d+)\s*个?\s*烧饼",
     r"签到.*?(\d+)\s*烧饼",
@@ -71,6 +75,9 @@ class SbSbSite(BaseSite):
     def _via_http(self, account: Account) -> SigninResult:
         http = self.ctx.http(account.cookie)
         r = http.get(SIGNIN_URL, headers={"Referer": HOME_URL})
+        if is_blocked_region(r.text):
+            return self.fatal_fail(account, "站点对当前出口 IP 所在地区不开放（" + BASE +
+                                   " 地区封锁），需换到可访问的出口网络/代理")
         if is_cf_challenge(r):
             raise _Escalate(f"Cloudflare 挑战（HTTP {r.status_code}）")
         if r.status_code != 200:
@@ -126,7 +133,7 @@ class SbSbSite(BaseSite):
         try:
             browser = self.ctx.browser()
         except BrowserUnavailable as e:
-            return self.result(account, "failed", str(e))
+            return self.fatal_fail(account, str(e))
 
         try:
             with browser as b:
@@ -159,7 +166,7 @@ class SbSbSite(BaseSite):
                                        f"自动登录失败：{type(e).__name__}: {e}"[:200])
                 return self._checkin_in_browser(b, account)
         except BrowserUnavailable as e:
-            return self.result(account, "failed", str(e))
+            return self.fatal_fail(account, str(e))
         except Exception as e:
             return self.result(account, "failed", f"浏览器通道异常：{type(e).__name__}: {e}"[:200])
 
@@ -188,6 +195,12 @@ class SbSbSite(BaseSite):
 
 class _Escalate(Exception):
     """内部信号：升级到浏览器通道。"""
+
+
+def is_blocked_region(html: str) -> bool:
+    """sb.sb 的地区封锁页：所有路径都返回同一个占位页，不会写明确的 403。"""
+    head = (html or "")[:4000]
+    return any(m in head for m in REGION_BLOCK_MARKERS)
 
 
 def parse_signin_state(html: str) -> Dict[str, Any]:

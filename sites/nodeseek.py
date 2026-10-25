@@ -81,13 +81,16 @@ class NodeSeekSite(BaseSite):
                 },
             )
         except Exception as e:
-            self.log.info("NodeSeek 接口请求异常：%s", e)
+            self.log.info("NodeSeek 接口请求异常：%s", str(e)[:160])
             return None
         if is_cf_challenge(resp):
+            self.log.info("NodeSeek 接口被 Cloudflare 拦截：HTTP %s", resp.status_code)
             return None
         try:
             payload = resp.json()
         except Exception:
+            self.log.info("NodeSeek 接口返回非 JSON：HTTP %s，前 100 字符：%s",
+                          resp.status_code, (resp.text or "")[:100].replace("\n", " "))
             return None
         if not isinstance(payload, dict):
             return None
@@ -116,7 +119,7 @@ class NodeSeekSite(BaseSite):
         try:
             browser = self.ctx.browser()
         except BrowserUnavailable as e:
-            return self.result(account, "failed", str(e))
+            return self.fatal_fail(account, str(e))
 
         try:
             with browser as b:
@@ -149,7 +152,7 @@ class NodeSeekSite(BaseSite):
                                    f"获得 {reward} 鸡腿" if reward else "",
                                    _balance(body))
         except BrowserUnavailable as e:
-            return self.result(account, "failed", str(e))
+            return self.fatal_fail(account, str(e))
         except Exception as e:
             return self.result(account, "failed", f"浏览器通道异常：{type(e).__name__}: {e}"[:200])
 

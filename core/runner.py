@@ -38,6 +38,9 @@ class Runner:
                 last = site.result(account, "failed", f"异常：{type(e).__name__}: {e}"[:200])
             if last.ok:
                 return last
+            if getattr(last, "fatal", False):
+                self.log.error("%s/%s 环境级失败，跳过重试", site.display, account.name)
+                return last
             if i < retries:
                 wait = 20 * (i + 1) + random.randint(5, 25)
                 self.log.info("%s/%s 第 %s 次失败，%s 秒后重试", site.display, account.name, i + 1, wait)

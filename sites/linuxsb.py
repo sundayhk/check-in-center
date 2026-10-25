@@ -130,7 +130,7 @@ class LinuxSbSite(BaseSite):
         try:
             browser = self.ctx.browser()
         except BrowserUnavailable as e:
-            return self.result(account, "failed", str(e))
+            return self.fatal_fail(account, str(e))
 
         try:
             with browser as b:
@@ -150,7 +150,7 @@ class LinuxSbSite(BaseSite):
 
                 return self._login_and_checkin(b, account)
         except BrowserUnavailable as e:
-            return self.result(account, "failed", str(e))
+            return self.fatal_fail(account, str(e))
         except Exception as e:
             return self.result(account, "failed", f"浏览器通道异常：{type(e).__name__}: {e}"[:200])
 

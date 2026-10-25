@@ -86,6 +86,7 @@ class RuntimeCfg:
     state_db: str = "data/state.db"
     headless: bool = True
     browser_backend: str = "auto"      # auto | camoufox | playwright | none
+    camoufox_exclude_addons: bool = True   # 不加载 uBlock Origin，避免联网下载拖慢/拖垮启动
     proxy: str = ""
     timeout: int = 30
     cf_wait_timeout: int = 90
@@ -121,6 +122,9 @@ def _build(data: Dict[str, Any]) -> Config:
         state_db=str(rt.get("state_db", "data/state.db")),
         headless=bool(rt.get("headless", True)),
         browser_backend=str(rt.get("browser_backend", "auto")),
+        camoufox_exclude_addons=(
+            str(rt.get("camoufox_exclude_addons",
+                       os.environ.get("CAMOUFOX_EXCLUDE_ADDONS", "true"))).lower() != "false"),
         proxy=str(rt.get("proxy") or os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or ""),
         timeout=int(rt.get("timeout", 30)),
         cf_wait_timeout=int(rt.get("cf_wait_timeout", 90)),
@@ -186,7 +190,12 @@ def _build(data: Dict[str, Any]) -> Config:
 
 
 def load_config(path: Optional[str] = None) -> Config:
-    """读取配置；找不到 YAML 时回退到环境变量模式。"""
+    """读取配置；找不到 YAML 时回退到环境变量模式。
+
+    会先加载项目根目录的 .env（不覆盖已有的真实环境变量），
+    这样本地直跑 / VPS cron 也能用 .env，而不必只在 Docker 里生效。
+    """
+    load_dotenv()
     candidates = [Path(path)] if path else [ROOT / "config.yaml", ROOT / "config.yml"]
     for c in candidates:
         if c and c.exists():
@@ -195,6 +204,45 @@ def load_config(path: Optional[str] = None) -> Config:
             with c.open("r", encoding="utf-8") as f:
                 return _build(yaml.safe_load(f) or {})
     return _build(_env_template())
+
+
+def load_dotenv(path: Optional[Path] = None, override: bool = False) -> Path:
+    """加载项目根目录的 .env 到 os.environ（真实环境变量优先）。
+
+    不引入 python-dotenv，手写一个够用的解析器：
+    支持注释、`export` 前缀、单双引号包裹、行尾行内注释。
+    返回实际加载的文件路径，没找到返回 None。
+    """
+    p = Path(path) if path else ROOT / ".env"
+    if not p.exists():
+        return None
+    try:
+        raw = p.read_text(encoding="utf-8-sig")
+    except Exception:
+        return None
+
+    inline_comment = re.compile(r"\s+#.*$")
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        if "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key = key.strip().lstrip("\ufeff")
+        if not key:
+            continue
+        val = val.strip()
+        # 只有成对且完整包裹的引号才去掉，避免误删值里的引号
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+            val = val[1:-1]
+        else:
+            val = inline_comment.sub("", val).strip()
+        if override or key not in os.environ:
+            os.environ[key] = val
+    return p
 
 
 def _env_template() -> Dict[str, Any]:

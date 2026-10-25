@@ -38,8 +38,9 @@ python -m camoufox fetch          # 推荐
 
 cp config.example.yaml config.yaml
 cp .env.example .env              # 填入 cookie / TG 凭证
-export $(grep -v '^#' .env | xargs)   # 本地直接 export；Docker 会自动读 .env
 
+# .env 会被程序自动加载（本地直跑、Docker、cron 都生效），不需要手动 export
+python main.py --doctor           # 体检：依赖 / 浏览器内核 / 配置 / 通知
 python main.py --list-sites
 python main.py --test-notify      # 验证 TG 能否收到
 python main.py --dry-run          # 演练，不发起请求
@@ -117,8 +118,25 @@ Fork 后在 `Settings → Secrets and variables → Actions` 里配置 `NS_COOKI
 | `--no-notify` | 不推送 |
 | `--daemon --interval 1800` | 常驻，每 30 分钟一轮 |
 | `--test-notify` | 只测通知链路 |
+| `--doctor` | 环境体检：依赖 / 浏览器内核 / 配置 / 通知是否就位 |
+| `--doctor --probe` | 额外探测各站点连通性与是否被 Cloudflare 拦 |
 
-## 风控与合规
+## 故障排查
+
+先跑 `python main.py --doctor --probe`，大部分问题它能直接指出。
+
+| 现象 | 处理 |
+|---|---|
+| NodeSeek 报「Cookie 已失效」 | 确认是整段复制（含 `session`），不要只取 `document.cookie` |
+| 一直卡在 Cloudflare | 配 `PROXY`；把 `browser_backend` 明确设为 `camoufox`；`headless: false` 本地调试观察 |
+| **浏览器通道报未找到后端 / 不可用** | 装 pip 包不算完，还要拉浏览器内核：`pip install -U camoufox && python -m camoufox fetch`（或 `pip install playwright && playwright install chromium`）。Docker 构建里若 `camoufox fetch` 失败，镜像会直接构建失败，不会带病出厂 |
+| Camoufox 启动慢 / 报 UBO 下载失败 | 保留默认 `camoufox_exclude_addons: true`，跳过 uBlock Origin 下载 |
+| 所有账号 cookie 都是空的 | 检查 `.env` 是否在**项目根目录**（非 `core/`），变量名是否与 config.yaml 对得上；`--doctor` 的「配置」段会显示每个账号的 cookie 长度 |
+| V2EX 找不到领取链接 | 可能早于 08:00 或今日已领；加 `--force` 复测 |
+| 烧饼报未取到 `_csrf` | 页面结构可能变化，或已被重定向到登录页，重新抓 Cookie |
+| sb.sb 报 HTTP 404 | **多数不是路径错，是当前出口 IP 所在地区被站点封锁**（页面里写着「暂未对您所在地区开放」）。换到可访问的出口网络或配代理后再跑 |
+| sb.sb 报未找到签到入口 | 确认 cookie 有效；把日志里打印的按钮文案发出来对照，必要时改 `sites/sbsb.py` 的选择器 |
+| 日志出现「状态库不可用」 | `data/` 目录不可写时会降级为内存去重，签到照常；不影响本次执行 |
 
 - 站点间随机等待 30~120 秒、账号间 10~60 秒，失败重试带退避
 - 只做签到，不做评论/点赞等会产生他人可见内容的操作（评论区互动有被举报风险）

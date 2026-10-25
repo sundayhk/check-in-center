@@ -1,8 +1,8 @@
 services:
-  signin:
+  checkin:
     build: .
-    image: signin-hub:latest
-    container_name: signin-hub
+    image: checkin-hub:latest
+    container_name: checkin-hub
     restart: "no"
     env_file: .env
     volumes:
