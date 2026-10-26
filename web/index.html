@@ -63,8 +63,9 @@ select { width: auto; }
     <button data-tab="rec">签到记录</button>
     <button data-tab="ck">Cookie 管理</button>
     <span class="row" style="margin-left:auto">
-      <select id="runSite"><option value="">全部站点</option></select>
-      <label style="margin:0"><input type="checkbox" id="runForce" style="width:auto"> 强制</label>
+      <label style="margin:0;color:var(--muted)">站点</label>
+      <select id="runSite" style="width:auto"><option value="">全部站点</option></select>
+      <label style="margin:0"><input type="checkbox" id="runForce" style="width:auto"> 强制（忽略今日已完成）</label>
       <button class="btn" id="runBtn">立即签到</button>
     </span>
   </div>

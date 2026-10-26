@@ -187,7 +187,9 @@ def run_once(cfg, log, args, notifier) -> tuple:
         else:
             failed = [r for r in results if r.status == "failed"]
             title = "signin-hub 签到汇总" + ("（有失败项）" if failed else "")
-            notifier.send(title, summary)
+            # 标题已含「签到汇总」，正文去掉 format_summary 的重复表头
+            body = "\n".join(summary.splitlines()[1:]).strip("\n")
+            notifier.send(title, body)
 
     return (0 if all(r.ok for r in results) else 1), summary
 
