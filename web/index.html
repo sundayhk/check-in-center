@@ -152,7 +152,7 @@ async function loadOverview() {
       }).join('')}</div>`;
   }).join('');
   const sel = $('#runSite'), rs = $('#recSite');
-  if (!sel.options.length) {
+  if (sel.options.length <= 1) {   // 只有「全部站点」占位项时才填充各站点选项
     j.sites.forEach(s => {
       sel.insertAdjacentHTML('beforeend', `<option value="${s.site}">${s.label}</option>`);
       rs.insertAdjacentHTML('beforeend', `<option value="${s.site}">${s.label}</option>`);
