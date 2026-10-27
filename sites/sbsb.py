@@ -264,8 +264,10 @@ class SbSbSite(BaseSite):
                     " return i && i.value; }", timeout=90000)
                 break
             except Exception:
-                # token 等待失败：可能是表单已提交导致页面跳转（执行环境销毁），
-                # 也可能是求解被拒。先看页面是否已经签上，再决定重试。
+                # token 等待失败的可能原因：表单已提交触发 Cloudflare 交互式挑战
+                #（需勾选「请验证您是真人」）、求解被拒、或页面跳转。
+                # 先把 CF 挑战等过去，再看是否已经签上，最后才重试 cap。
+                b.wait_for_cf(self.ctx.runtime.cf_wait_timeout)
                 b.wait(2000)
                 try:
                     if "今日已签到" in b.text():

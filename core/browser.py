@@ -373,16 +373,31 @@ class BrowserSession:
         return False
 
     def wait_for_cf(self, timeout: Optional[int] = None) -> bool:
-        """等待 Cloudflare 挑战自动通过；期间周期性尝试点击 Turnstile。"""
+        """等待 Cloudflare 挑战通过；期间周期性点击 Turnstile 复选框。
+
+        交互式挑战（「请验证您是真人」勾选框）的 iframe 加载有先后，
+        只点一次经常落空，因此每 8 秒重试一次（最多 5 次），直到挑战消失。
+        """
         deadline = time.time() + (timeout or self.cf_timeout)
-        clicked_once = False
+        clicks = 0
+        last_click = 0.0
         while time.time() < deadline:
-            if not self.is_cf_page():
+            if not self.is_cf_page() and not self._turnstile_present():
                 return True
-            if not clicked_once:
-                clicked_once = self.try_click_turnstile()
+            if clicks < 5 and time.time() - last_click >= 8:
+                if self.try_click_turnstile():
+                    clicks += 1
+                    last_click = time.time()
             time.sleep(3)
-        return not self.is_cf_page()
+        return not self.is_cf_page() and not self._turnstile_present()
+
+    def _turnstile_present(self) -> bool:
+        """页面上是否还挂着 Cloudflare 挑战 iframe（交互式勾选框未完成时存在）。"""
+        try:
+            return any("challenges.cloudflare.com" in (f.url or "")
+                       for f in self.page.frames)
+        except Exception:
+            return False
 
     # ---- 交互 ----
     def click_button(self, texts: List[str], container: Optional[str] = None,
