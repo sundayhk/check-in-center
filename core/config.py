@@ -187,7 +187,27 @@ def _build(data: Dict[str, Any]) -> Config:
                         username=str(item.get("username") or ""),
                         password=str(item.get("password") or ""),
                     ))
-    return Config(runtime=runtime, notify=notify, sites=sites)
+    return _apply_site_enabled_env(Config(runtime=runtime, notify=notify, sites=sites))
+
+
+_SITE_ENV_PREFIX = {
+    "nodeseek": "NS",
+    "v2ex": "V2EX",
+    "linuxsb": "LINUXSB",
+    "sbsb": "SBSB",
+}
+
+
+def _apply_site_enabled_env(cfg: "Config") -> "Config":
+    """允许用环境变量覆盖站点启用状态（Web 控制台的开关写 .env 用）。"""
+    for key, site in cfg.sites.items():
+        prefix = _SITE_ENV_PREFIX.get(key)
+        if not prefix:
+            continue
+        raw = os.environ.get(f"{prefix}_ENABLED")
+        if raw is not None and raw != "":
+            site.enabled = str(raw).strip().lower() not in ("0", "false", "no", "off")
+    return cfg
 
 
 def load_config(path: Optional[str] = None) -> Config:

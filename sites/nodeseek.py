@@ -30,6 +30,7 @@ REWARD_PATTERNS = (
     r"得鸡腿\s*(\d+)\s*个",
     r"(\d+)\s*(?:个?\s*鸡腿|鸡腿)",
 )
+MSG_REWARD_RE = re.compile(r"(\d+)\s*个?鸡腿")
 ALREADY_KEYS = ("已签到", "今日已签到", "今日签到获得", "当前排名", "签到成功", "本次获得", "排名")
 BALANCE_PATTERNS = (r"鸡腿总数[:：]?\s*([\d,]+)", r"当前鸡腿[:：]?\s*([\d,]+)", r"总鸡腿[:：]?\s*([\d,]+)")
 
@@ -106,8 +107,10 @@ class NodeSeekSite(BaseSite):
             return None
         msg = str(payload.get("message") or "")
         if payload.get("success") is False:
+            m = MSG_REWARD_RE.search(msg)
             if any(k in msg for k in ("已签到", "重复", "already")):
-                return self.result(account, "already", msg[:120] or "今日已签到")
+                return self.result(account, "already", msg[:120] or "今日已签到",
+                                   f"获得 {m.group(1)} 鸡腿" if m else "")
             if "USER NOT FOUND" in msg:
                 return self.result(account, "failed",
                                    "Cookie 已失效（接口返回 USER NOT FOUND），请重新抓取 session/pjwt")
@@ -154,6 +157,10 @@ class NodeSeekSite(BaseSite):
         msg = str(payload.get("message") or data.get("message") or "")
         ok = payload.get("success", payload.get("ok"))
         reward = data.get("reward") or data.get("amount") or payload.get("reward") or ""
+        if not reward:
+            m = MSG_REWARD_RE.search(msg)
+            if m:
+                reward = m.group(1)
         balance = str(data.get("balance") or data.get("total") or "")
 
         if ok is True or str(ok).lower() == "true":

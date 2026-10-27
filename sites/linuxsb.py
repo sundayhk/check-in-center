@@ -26,8 +26,13 @@ CHECKED_IN_TEXT = "今日已签到"
 LOGIN_MARKERS = ('name="password"', "user_review_login_email")
 BONUS_KEYS = ("bonus", "points", "gain", "reward", "score", "earned")
 META_PATTERNS = (
+    # 页面头部 user-rank 里的「积分 N」（2026-10 页面实际展示位置）
+    (r'user-rank">\s*积分\s*([\d,]+)', "积分 {}"),
     (r"当前积分[:：]?\s*([\d,]+)", "当前积分 {}"),
     (r"连续签到\s*[:：]?\s*(\d+)\s*天", "连续 {} 天"),
+    (r'<strong>(\d+)</strong>\s*<span>\s*连续天数', "连续 {} 天"),  # HTML 版
+    (r'(\d+)\s*\n?\s*连续天数', "连续 {} 天"),  # 浏览器纯文本版
+    (r"积分\s*([\d,]+)", "积分 {}"),  # 兜底：纯文本页头
 )
 
 CHECKIN_JS = """
@@ -250,7 +255,9 @@ def _meta(html: str) -> str:
     for pattern, tpl in META_PATTERNS:
         m = re.search(pattern, html or "")
         if m:
-            bits.append(tpl.format(m.group(1)))
+            bit = tpl.format(m.group(1))
+            if bit not in bits:
+                bits.append(bit)
     return " · ".join(bits)
 
 

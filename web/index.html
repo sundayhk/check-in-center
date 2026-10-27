@@ -182,14 +182,21 @@ $('#recSite').onchange = loadRecords;
 async function loadCookies() {
   const j = await api('/api/cookies');
   if (!j.ok) return;
-  $('#tab-ck').innerHTML = j.sites.map(s => {
+  $('#tab-ck').innerHTML = `
+    <div class="card"><div class="row">
+      <span class="meta">批量操作：</span>
+      <button class="btn gray" onclick="setAllEnabled(true)">全部启用</button>
+      <button class="btn gray" onclick="setAllEnabled(false)">全部禁用</button>
+      <span class="meta">禁用后该站不再自动签到，已签记录保留</span>
+    </div></div>` + j.sites.map(s => {
     const a = s.accounts[0] || {};
     const userField = (s.site === 'linuxsb' || s.site === 'sbsb') ? `
       <label>用户名（Cookie 失效时自动登录兜底，可选）</label>
       <input id="u-${s.site}" value="${a.username || ''}">` : '';
     return `<div class="card">
       <div class="site-head"><b>${s.label}</b>
-        <span class="badge">${s.enabled ? '启用' : '停用'}</span>
+        <label style="margin:0 0 0 auto"><input type="checkbox" id="en-${s.site}"
+          ${s.enabled ? 'checked' : ''} style="width:auto" onchange="setEnabled('${s.site}', this.checked)"> 自动签到</label>
         <span class="meta">写入 .env 变量 ${s.env}${a.has_cookie ? ' · 当前：' + a.cookie_masked : ' · 未配置'}</span></div>
       <label>Cookie（多账号用 <code>${s.separator}</code> 分隔；留空则不修改）</label>
       <textarea id="c-${s.site}" placeholder="粘贴从浏览器复制的整段 Cookie"></textarea>
@@ -198,6 +205,17 @@ async function loadCookies() {
         <button class="btn" onclick="saveCookie('${s.site}')">保存</button>
       </div></div>`;
   }).join('');
+}
+async function setEnabled(site, enabled) {
+  const j = await api(`/api/sites/${site}/enabled`, { method: 'POST',
+    headers: {'Content-Type':'application/json'}, body: JSON.stringify({ enabled }) });
+  toast(j.msg || (j.ok ? '已更新' : '操作失败'));
+  loadOverview();
+}
+async function setAllEnabled(enabled) {
+  for (const s of (await api('/api/cookies')).sites) {
+    await setEnabled(s.site, enabled);
+  }
 }
 async function saveCookie(site) {
   const body = { cookie: $(`#c-${site}`).value.trim(),

@@ -215,36 +215,80 @@ class SbSbSite(BaseSite):
         # solve 事件会把 token 写入隐藏域并自动 requestSubmit
         b.wait(1500)
         b.wait_for_cf(30)
-        cap_js = """
+        # cap.js 人机验证：点击「立即签到」后弹模态框，点 cap-widget 完成 PoW，
+        # solve 事件把 token 写入隐藏域并自动 requestSubmit。
+        # 求解可能因风控/网络偶发失败（widget 显示「验证失败」），reset 后重试最多 3 次。
+        cap_state_js = """
 () => {
   const w = document.querySelector('.signin-form cap-widget');
   if (!w) return { found: false };
   const sr = w.shadowRoot;
-  const hit = sr && sr.querySelector('button, [role="button"], .widget, #adminbar, div');
-  if (hit) hit.click();
-  return { found: true, clicked: !!hit };
+  const lb = sr && sr.querySelector('.label');
+  return { found: true, label: lb ? lb.textContent : '', token: !!w._token };
+}
+"""
+        cap_click_js = """
+() => {
+  const w = document.querySelector('.signin-form cap-widget');
+  if (!w || !w.shadowRoot) return 'no widget';
+  const hit = w.shadowRoot.querySelector('.captcha-trigger') || w.shadowRoot.querySelector('.checkbox')
+              || w.shadowRoot.querySelector('button');
+  if (!hit) return 'no trigger';
+  hit.click();
+  return 'clicked';
 }
 """
         try:
-            st = b.eval(cap_js) or {}
+            b.eval("() => { window.__caperrs = []; document.querySelectorAll('cap-widget')"
+                   ".forEach(w => w.addEventListener('error', e => window.__caperrs.push("
+                   "JSON.stringify((e && e.detail) || {})))); }")
         except Exception:
+            pass
+        for attempt in range(3):
             st = {}
-        if st.get("found"):
-            self.log.info("烧饼论坛：cap 人机验证弹窗，点击 widget 求解 PoW")
-            # PoW 通常几秒内完成，solve 后表单会自动提交
             try:
-                b.page.wait_for_function(
-                    "() => !!document.querySelector('.signin-form input[name=\"cap-token\"]')"
-                    " && !!document.querySelector('.signin-form input[name=\"cap-token\"]').value",
-                    timeout=90000)
+                st = b.eval(cap_state_js) or {}
             except Exception:
                 pass
+            if not st.get("found"):
+                break  # 页面没有 cap widget（站点可能取消了验证），直接走结果判定
+            self.log.info("烧饼论坛：cap 人机验证（第 %d 次）", attempt + 1)
+            try:
+                b.eval(cap_click_js)
+            except Exception:
+                pass
+            # PoW 一般几秒内完成；solve 后表单自动提交
+            try:
+                b.page.wait_for_function(
+                    "() => { const i = document.querySelector('.signin-form input[name=\"cap-token\"]');"
+                    " return i && i.value; }", timeout=90000)
+                break
+            except Exception:
+                # token 等待失败：可能是表单已提交导致页面跳转（执行环境销毁），
+                # 也可能是求解被拒。先看页面是否已经签上，再决定重试。
+                b.wait(2000)
+                try:
+                    if "今日已签到" in b.text():
+                        break
+                except Exception:
+                    pass
+                try:
+                    errs = b.eval("() => window.__caperrs || []") or []
+                except Exception:
+                    errs = []
+                self.log.info("烧饼论坛：cap 未出 token（%s），重试", (errs or ["超时"])[0][:120])
+                try:
+                    b.eval("() => { const w = document.querySelector('.signin-form cap-widget');"
+                           " try { w.reset && w.reset(); } catch {} }")
+                except Exception:
+                    pass
+                b.wait(2000)
         b.wait(3000)
         b.wait_for_cf(30)
         body = b.text()
         if "今日已签到" in body or "签到成功" in body:
             return self.result(account, "success", "签到成功", _reward(body), _meta(body))
-        return self.result(account, "failed", "点击后未确认成功（可能 cap 人机验证未通过）")
+        return self.result(account, "failed", "点击后未确认成功（cap 人机验证未通过，下轮会自动重试）")
 
 
 class _Escalate(Exception):

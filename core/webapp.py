@@ -148,6 +148,19 @@ class WebApp:
             self.log.info("Web UI：已更新 %s 的 Cookie/账号配置", site)
             return {"ok": True, "msg": f"{SITE_LABEL.get(site, site)} 配置已保存并即时生效"}
 
+        @app.post("/api/sites/{site}/enabled")
+        async def set_site_enabled(site: str, request: Request):
+            if not _authed(request):
+                return JSONResponse({"ok": False, "msg": "未登录"}, status_code=401)
+            if site not in SITE_ENV:
+                return JSONResponse({"ok": False, "msg": f"未知站点 {site}"}, status_code=404)
+            body = await request.json()
+            enabled = bool(body.get("enabled"))
+            self._write_enabled(site, enabled)
+            self.log.info("Web UI：%s 签到已%s", site, "启用" if enabled else "禁用")
+            return {"ok": True, "enabled": enabled,
+                    "msg": f"{SITE_LABEL.get(site, site)} 已{'启用' if enabled else '禁用'}（当日去重仍保留）"}
+
         # ---------- 手动签到 ----------
         @app.post("/api/run")
         async def run_signin(request: Request):
@@ -263,6 +276,17 @@ class WebApp:
             return f"'{val}'"
         return f'"{val.replace(chr(34), chr(92) + chr(34))}"'
 
+    def _write_enabled(self, site: str, enabled: bool) -> None:
+        """站点启用开关写回 .env（NS_ENABLED=1/0 等），并热更新内存配置。"""
+        from .config import _SITE_ENV_PREFIX
+        prefix = _SITE_ENV_PREFIX[site]
+        key = f"{prefix}_ENABLED"
+        self._write_env_raw({key: "1" if enabled else "0"})
+        os.environ[key] = "1" if enabled else "0"
+        site_cfg = self.cfg.sites.get(site)
+        if site_cfg is not None:
+            site_cfg.enabled = enabled
+
     def _write_env(self, site: str, cookie: str, username: str, password: str) -> None:
         """把导入的配置写回 .env（保留其余行；注释行不动）。"""
         updates: Dict[str, str] = {}
@@ -272,6 +296,9 @@ class WebApp:
             updates[f"{SITE_ENV[site].rsplit('_COOKIE', 1)[0]}_USERNAME"] = username
         if password:
             updates[f"{SITE_ENV[site].rsplit('_COOKIE', 1)[0]}_PASSWORD"] = password
+        self._write_env_raw(updates)
+
+    def _write_env_raw(self, updates: Dict[str, str]) -> None:
         env_path = ROOT / ".env"
         lines: list = []
         if env_path.exists():
