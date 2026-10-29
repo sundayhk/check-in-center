@@ -184,14 +184,53 @@ def run_once(cfg, log, args, notifier) -> tuple:
         # 全员都是「今日已完成/未配置」的空轮次不打扰：有实际签到动作或失败才推送
         if all(r.status == "skipped" for r in results):
             log.info("本轮全部站点均已跳过，不推送通知")
-        else:
+        elif _should_notify(results):
             failed = [r for r in results if r.status == "failed"]
             title = "signin-hub 签到汇总" + ("（有失败项）" if failed else "")
             # 标题已含「签到汇总」，正文去掉 format_summary 的重复表头
             body = "\n".join(summary.splitlines()[1:]).strip("\n")
             notifier.send(title, body)
+        else:
+            log.info("夜间静默窗口内已推送过，本轮结果静默（08:30 后恢复）")
 
     return (0 if all(r.ok for r in results) else 1), summary
+
+
+# 夜间静默窗口（北京时间 00:00–08:30）内是否已推送过：每个自然日只推第一轮
+_QUIET_NOTIFIED: dict = {}
+
+
+def _bj_now():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    try:
+        return datetime.now(ZoneInfo("Asia/Shanghai"))
+    except Exception:
+        return datetime.now()
+
+
+def _should_notify(results) -> bool:
+    """夜间静默策略：
+
+    - 北京时间 00:00–08:30 为静默窗口：窗口内非 v2ex 站点只在第一轮有实际
+      动作（成功/已签/失败）时推送一次，之后静默到 08:30；
+    - V2EX 的奖励 08:00 才刷新、属于早晨签到，其结果不受夜间静默影响
+      （08:23 领取成功这类要照常推送）；
+    - 白天维持原策略：全员跳过不推，其余照常推。
+    """
+    now = _bj_now()
+    quiet = now.hour < 8 or (now.hour == 8 and now.minute < 30)
+    if not quiet:
+        return True
+    others = [r for r in results if r.site != "v2ex"]
+    if not others or all(r.status == "skipped" for r in others):
+        # 本轮只有 V2EX 有动作：早晨领取，照常推送
+        return not all(r.status == "skipped" for r in results)
+    today = now.strftime("%Y-%m-%d")
+    if _QUIET_NOTIFIED.get(today):
+        return False
+    _QUIET_NOTIFIED[today] = True
+    return True
 
 
 if __name__ == "__main__":

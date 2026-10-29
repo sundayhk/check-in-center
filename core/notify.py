@@ -129,3 +129,39 @@ class Notifier:
             except Exception as e:
                 if self.log:
                     self.log.warning("通知渠道 %s 异常: %s", ch.name, e)
+
+
+class NotifyGate:
+    """常驻模式夜间推送节流。
+
+    规则（北京时间）：
+      - 08:00 后：正常推送；
+      - 00:00–07:59：本轮若有实际签到结果，只推送当夜第一轮，
+        其余轮次静默（结果都已落库/去重，08:00 后自然会有最终汇报）；
+      - 全部为「跳过」的轮次任何时候都不推（由调用方先行过滤）。
+
+    只用于 daemon 调度循环；Web UI 手动触发的签到不受限流。
+    """
+
+    NIGHT_END_HOUR = 8
+
+    def __init__(self, logger=None):
+        self.log = logger
+        self._night_pushed_key: str = ""
+
+    def allow(self) -> bool:
+        from datetime import datetime
+        try:
+            from zoneinfo import ZoneInfo
+            now = datetime.now(ZoneInfo("Asia/Shanghai"))
+        except Exception:
+            now = datetime.now()
+        if now.hour >= self.NIGHT_END_HOUR:
+            return True
+        key = now.strftime("%Y-%m-%d")
+        if self._night_pushed_key == key:
+            if self.log:
+                self.log.info("夜间静默（08:00 前只推一次），本轮结果仅记录不推送")
+            return False
+        self._night_pushed_key = key
+        return True
